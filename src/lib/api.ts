@@ -2,7 +2,8 @@
 // API Client — typed wrapper around fetch for the FastAPI backend
 // ---------------------------------------------------------------------------
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// API calls go through the Next.js proxy at /api/v1/* which adds auth headers
+const API_BASE = "";
 
 // ---------------------------------------------------------------------------
 // Types
