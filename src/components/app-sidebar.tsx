@@ -7,13 +7,10 @@ import {
   Bot,
   MessageSquare,
   Settings,
-  Moon,
-  Sun,
   Zap,
   LogOut,
   ChevronsUpDown,
 } from "lucide-react"
-import { useTheme } from "next-themes"
 import {
   Sidebar,
   SidebarContent,
@@ -52,8 +49,6 @@ interface AppSidebarProps {
 
 export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname()
-  const { theme, setTheme } = useTheme()
-
   const initials = user?.name
     ? user.name
         .split(" ")
@@ -122,17 +117,6 @@ export function AppSidebar({ user }: AppSidebarProps) {
               <span>Settings</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              tooltip="Toggle theme"
-            >
-              <Sun className="hidden dark:block" />
-              <Moon className="block dark:hidden" />
-              <span>Toggle Theme</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-
           {/* User menu */}
           {user && (
             <SidebarMenuItem>
