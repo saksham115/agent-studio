@@ -1,7 +1,8 @@
 """Document parsing and chunking for knowledge-base ingestion.
 
-Supports PDF (via PyMuPDF), plain text, and CSV files.  Documents are
-split into overlapping chunks suitable for embedding.
+Supports PDF (via PyMuPDF), DOCX (via python-docx), XLSX (via openpyxl),
+plain text, and CSV files.  Documents are split into overlapping chunks
+suitable for embedding.
 """
 
 from __future__ import annotations
@@ -57,6 +58,10 @@ class DocumentProcessor:
             raw_text = self._parse_txt(file_content)
         elif source_type == "csv":
             raw_text = self._parse_csv(file_content)
+        elif source_type == "docx":
+            raw_text = self._parse_docx(file_content)
+        elif source_type in ("xlsx", "xls"):
+            raw_text = self._parse_xlsx(file_content)
         else:
             raise ValueError(f"Unsupported source type: {source_type}")
 
@@ -124,6 +129,60 @@ class DocumentProcessor:
                 parts.append(f"{header}: {value}")
             output_lines.append(" | ".join(parts))
 
+        return "\n".join(output_lines)
+
+    def _parse_docx(self, content: bytes) -> str:
+        """Extract text from a DOCX file using python-docx."""
+        try:
+            from docx import Document
+        except ImportError as exc:
+            raise RuntimeError(
+                "python-docx is required for DOCX parsing. Install it with: pip install python-docx"
+            ) from exc
+
+        doc = Document(io.BytesIO(content))
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+
+        # Also extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                if cells:
+                    paragraphs.append(" | ".join(cells))
+
+        return "\n\n".join(paragraphs)
+
+    def _parse_xlsx(self, content: bytes) -> str:
+        """Extract text from an XLSX file using openpyxl."""
+        try:
+            from openpyxl import load_workbook
+        except ImportError as exc:
+            raise RuntimeError(
+                "openpyxl is required for XLSX parsing. Install it with: pip install openpyxl"
+            ) from exc
+
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        output_lines: list[str] = []
+
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            output_lines.append(f"## Sheet: {sheet_name}")
+            headers: list[str] = []
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                values = [str(v) if v is not None else "" for v in row]
+                if not any(values):
+                    continue
+                if row_idx == 0:
+                    headers = values
+                    output_lines.append(" | ".join(headers))
+                elif headers:
+                    parts = [f"{h}: {v}" for h, v in zip(headers, values) if v]
+                    if parts:
+                        output_lines.append(" | ".join(parts))
+                else:
+                    output_lines.append(" | ".join(v for v in values if v))
+
+        wb.close()
         return "\n".join(output_lines)
 
     # ------------------------------------------------------------------

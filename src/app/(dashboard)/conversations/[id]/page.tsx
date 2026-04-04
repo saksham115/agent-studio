@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   ArrowLeft,
   Phone,
@@ -26,65 +27,17 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  conversationApi,
+  type ConversationDetail,
+  type ConversationMessage,
+  type StateTransition,
+  type ActionTriggered,
+  type GuardrailTriggered,
+} from "@/lib/api";
 
 type Channel = "voice" | "whatsapp" | "chatbot";
-type MessageSender = "agent" | "user" | "system";
-
-interface Message {
-  id: string;
-  sender: MessageSender;
-  content: string;
-  timestamp: string;
-}
-
-interface StateTransition {
-  state: string;
-  timestamp: string;
-  duration: string;
-}
-
-interface ActionTriggered {
-  id: string;
-  name: string;
-  status: "success" | "failed";
-  timestamp: string;
-  payload: Record<string, string>;
-}
-
-interface GuardrailTriggered {
-  id: string;
-  name: string;
-  severity: "low" | "medium" | "high";
-  details: string;
-  timestamp: string;
-}
-
-// TODO: fetch from API
-const conversationData: {
-  id: string;
-  contact: string;
-  contactName: string;
-  channel: Channel;
-  direction: string;
-  status: string;
-  startedAt: string;
-  duration: string;
-  messageCount: number;
-  agentName: string;
-  agentId: string;
-} | null = null;
-
-// TODO: fetch from API
-const messages: Message[] = [];
-
-// TODO: fetch from API
-const stateTimeline: StateTransition[] = [];
-
-// TODO: fetch from API
-const actionsTriggered: ActionTriggered[] = [];
-
-// TODO: fetch from API
-const guardrailsTriggered: GuardrailTriggered[] = [];
 
 const channelConfig: Record<
   Channel,
@@ -128,10 +81,79 @@ const severityConfig: Record<
   },
 };
 
+// ---------------------------------------------------------------------------
+// Loading Skeleton
+// ---------------------------------------------------------------------------
+
+function ConversationDetailSkeleton() {
+  return (
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+      <div className="flex items-center gap-3 border-b px-4 py-3">
+        <Skeleton className="h-9 w-9" />
+        <div className="space-y-1.5 flex-1">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-4 w-56" />
+        </div>
+      </div>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col flex-1 lg:w-2/3 border-r p-4 space-y-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className={`flex ${i % 2 === 0 ? "justify-start" : "justify-end"}`}>
+              <Skeleton className="h-16 w-3/5 rounded-2xl" />
+            </div>
+          ))}
+        </div>
+        <div className="hidden lg:flex lg:w-1/3 flex-col p-4 space-y-4">
+          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-36 w-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export default function ConversationDetailPage() {
+  const params = useParams();
+  const conversationId = params.id as string;
+
+  const [conversationData, setConversationData] = useState<ConversationDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [expandedActions, setExpandedActions] = useState<Set<string>>(
     new Set()
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await conversationApi.get(conversationId);
+        if (!cancelled) {
+          setConversationData(data);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error("Failed to load conversation:", err);
+          setError(err.message);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
 
   const toggleAction = (actionId: string) => {
     setExpandedActions((prev) => {
@@ -145,12 +167,18 @@ export default function ConversationDetailPage() {
     });
   };
 
-  if (!conversationData) {
+  if (loading) return <ConversationDetailSkeleton />;
+
+  if (error || !conversationData) {
     return (
       <div className="flex h-[calc(100vh-3.5rem)] flex-col items-center justify-center">
         <MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
         <h3 className="text-lg font-medium">Conversation not found</h3>
-        <p className="text-sm text-muted-foreground mt-1 mb-4">This conversation does not exist or has not been loaded yet.</p>
+        <p className="text-sm text-muted-foreground mt-1 mb-4">
+          {error
+            ? `Error: ${error}`
+            : "This conversation does not exist or has not been loaded yet."}
+        </p>
         <Link href="/conversations">
           <Button variant="outline">
             <ArrowLeft className="h-4 w-4 mr-1.5" />
@@ -161,8 +189,12 @@ export default function ConversationDetailPage() {
     );
   }
 
-  const channel = channelConfig[conversationData.channel];
+  const channel = channelConfig[(conversationData.channel as Channel) ?? "chatbot"] ?? channelConfig.chatbot;
   const ChannelIcon = channel.icon;
+  const messages: ConversationMessage[] = conversationData.messages ?? [];
+  const stateTimeline: StateTransition[] = conversationData.stateTimeline ?? [];
+  const actionsTriggered: ActionTriggered[] = conversationData.actionsTriggered ?? [];
+  const guardrailsTriggered: GuardrailTriggered[] = conversationData.guardrailsTriggered ?? [];
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
@@ -187,9 +219,22 @@ export default function ConversationDetailPage() {
                 {channel.label}
               </Badge>
               <span className="inline-flex items-center gap-1.5 shrink-0">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-                  Active
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    conversationData.status === "active"
+                      ? "bg-emerald-500 animate-pulse"
+                      : "bg-zinc-400"
+                  }`}
+                />
+                <span
+                  className={`text-sm font-medium ${
+                    conversationData.status === "active"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {conversationData.status?.charAt(0).toUpperCase() +
+                    conversationData.status?.slice(1)}
                 </span>
               </span>
             </div>
@@ -465,7 +510,7 @@ export default function ConversationDetailPage() {
                     <p className="text-sm text-muted-foreground">No guardrails triggered</p>
                   )}
                   {guardrailsTriggered.map((gr) => {
-                    const severity = severityConfig[gr.severity];
+                    const severity = severityConfig[gr.severity] ?? severityConfig.low;
                     return (
                       <div
                         key={gr.id}

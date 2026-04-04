@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -44,31 +44,19 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  agentApi,
+  actionApi,
+  stateApi,
+  channelApi,
+  guardrailApi,
+  conversationApi,
+  type AgentResponse,
+} from "@/lib/api";
 
 type AgentStatus = "active" | "draft" | "paused";
 type Channel = "voice" | "whatsapp" | "chatbot";
-
-interface AgentDetail {
-  id: string;
-  name: string;
-  persona: string;
-  customer: string;
-  status: AgentStatus;
-  channels: Channel[];
-  conversations: number;
-  completionRate: number;
-  avgConversationLength: string;
-  guardrailTriggers: number;
-  createdAt: string;
-  updatedAt: string;
-  languages: string[];
-  tone: string;
-  systemPromptPreview: string;
-  kbDocsCount: number;
-  actionsCount: number;
-  statesCount: number;
-  guardrailsCount: number;
-}
 
 interface ApiKey {
   id: string;
@@ -88,15 +76,6 @@ interface ConversationRow {
   startedAt: string;
   currentState: string;
 }
-
-// TODO: fetch from API
-const agentsMap: Record<string, AgentDetail> = {};
-
-// TODO: fetch from API
-const apiKeysData: ApiKey[] = [];
-
-// TODO: fetch from API
-const conversationsData: ConversationRow[] = [];
 
 const statusConfig: Record<AgentStatus, { label: string; className: string }> =
   {
@@ -156,8 +135,48 @@ function formatNumber(n: number): string {
   return n.toString();
 }
 
-function OverviewTab({ agent }: { agent: AgentDetail }) {
-  const status = statusConfig[agent.status];
+// ---------------------------------------------------------------------------
+// Loading Skeleton
+// ---------------------------------------------------------------------------
+
+function DetailSkeleton() {
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center gap-4">
+        <Skeleton className="h-9 w-9" />
+        <div className="flex items-center gap-3 flex-1">
+          <Skeleton className="h-10 w-10 rounded-lg" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-9 w-28" />
+        ))}
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i} size="sm">
+            <CardHeader>
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-8 w-16 mt-1" />
+            </CardHeader>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sub-tab components
+// ---------------------------------------------------------------------------
+
+function OverviewTab({ agent }: { agent: AgentResponse }) {
+  const status = statusConfig[(agent.status as AgentStatus) ?? "draft"];
 
   return (
     <div className="space-y-6">
@@ -210,7 +229,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
               </p>
               <div className="flex items-center gap-1.5 text-sm">
                 <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                {agent.updatedAt}
+                {agent.updatedAt ?? "--"}
               </div>
             </div>
             <div className="space-y-1">
@@ -219,7 +238,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
               </p>
               <div className="flex items-center gap-1.5 text-sm">
                 <Languages className="h-3.5 w-3.5 text-muted-foreground" />
-                {agent.languages.join(", ")}
+                {(agent.languages ?? []).join(", ") || "--"}
               </div>
             </div>
             <div className="space-y-1">
@@ -228,7 +247,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
               </p>
               <div className="flex items-center gap-1.5 text-sm">
                 <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-                {agent.tone}
+                {agent.tone ?? "--"}
               </div>
             </div>
             <div className="space-y-1">
@@ -236,8 +255,9 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
                 Channels
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {agent.channels.map((ch) => {
-                  const config = channelConfig[ch];
+                {(agent.channels ?? []).map((ch) => {
+                  const config = channelConfig[ch as Channel];
+                  if (!config) return null;
                   const Icon = config.icon;
                   return (
                     <Badge
@@ -259,7 +279,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
               System Prompt Preview
             </p>
             <p className="text-sm text-muted-foreground leading-relaxed rounded-md bg-muted/50 p-3 border border-border/50">
-              {agent.systemPromptPreview}
+              {agent.systemPromptPreview ?? agent.systemPrompt ?? "Not configured"}
             </p>
           </div>
         </CardContent>
@@ -271,7 +291,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           <CardHeader>
             <CardDescription>Total Conversations</CardDescription>
             <CardTitle className="text-2xl">
-              {formatNumber(agent.conversations)}
+              {formatNumber(agent.conversations ?? 0)}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -279,7 +299,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           <CardHeader>
             <CardDescription>Completion Rate</CardDescription>
             <CardTitle className="text-2xl">
-              {agent.completionRate > 0 ? `${agent.completionRate}%` : "--"}
+              {(agent.completionRate ?? 0) > 0 ? `${agent.completionRate}%` : "--"}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -287,7 +307,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           <CardHeader>
             <CardDescription>Avg. Conversation Length</CardDescription>
             <CardTitle className="text-2xl">
-              {agent.avgConversationLength}
+              {agent.avgConversationLength ?? "--"}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -295,7 +315,7 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
           <CardHeader>
             <CardDescription>Guardrail Triggers</CardDescription>
             <CardTitle className="text-2xl">
-              {agent.guardrailTriggers}
+              {agent.guardrailTriggers ?? 0}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -304,50 +324,61 @@ function OverviewTab({ agent }: { agent: AgentDetail }) {
   );
 }
 
-function ConfigurationTab({ agent }: { agent: AgentDetail }) {
+function ConfigurationTab({
+  agent,
+  configData,
+}: {
+  agent: AgentResponse;
+  configData: {
+    actionsCount: number;
+    statesCount: number;
+    kbDocsCount: number;
+    guardrailsCount: number;
+  };
+}) {
   const configSections = [
     {
       title: "Identity & System Prompt",
-      description: `Persona: ${agent.persona} | Tone: ${agent.tone} | Languages: ${agent.languages.join(", ")}`,
+      description: `Persona: ${agent.persona} | Tone: ${agent.tone ?? "--"} | Languages: ${(agent.languages ?? []).join(", ") || "--"}`,
       icon: Bot,
       detail: "Fully configured",
       color: "text-blue-500",
     },
     {
       title: "Knowledge Base",
-      description: `${agent.kbDocsCount} documents uploaded and indexed`,
+      description: `${configData.kbDocsCount} documents uploaded and indexed`,
       icon: Database,
-      detail: `${agent.kbDocsCount} docs`,
+      detail: `${configData.kbDocsCount} docs`,
       color: "text-violet-500",
     },
     {
       title: "Actions",
-      description: `${agent.actionsCount} actions configured (API calls, link generation, notifications)`,
+      description: `${configData.actionsCount} actions configured (API calls, link generation, notifications)`,
       icon: Zap,
-      detail: `${agent.actionsCount} actions`,
+      detail: `${configData.actionsCount} actions`,
       color: "text-amber-500",
     },
     {
       title: "State Diagram",
-      description: `${agent.statesCount} states defined in the sales lifecycle flow`,
+      description: `${configData.statesCount} states defined in the sales lifecycle flow`,
       icon: GitBranch,
-      detail: `${agent.statesCount} states`,
+      detail: `${configData.statesCount} states`,
       color: "text-emerald-500",
     },
     {
       title: "Channels",
-      description: agent.channels
-        .map((ch) => channelConfig[ch].label)
-        .join(", "),
+      description: (agent.channels ?? [])
+        .map((ch) => channelConfig[ch as Channel]?.label ?? ch)
+        .join(", ") || "None",
       icon: Globe,
-      detail: `${agent.channels.length} channels`,
+      detail: `${(agent.channels ?? []).length} channels`,
       color: "text-cyan-500",
     },
     {
       title: "Guardrails",
-      description: `${agent.guardrailsCount} safety rules active (IRDAI compliance, PII masking, escalation triggers)`,
+      description: `${configData.guardrailsCount} safety rules active (IRDAI compliance, PII masking, escalation triggers)`,
       icon: Shield,
-      detail: `${agent.guardrailsCount} rules`,
+      detail: `${configData.guardrailsCount} rules`,
       color: "text-red-500",
     },
   ];
@@ -386,17 +417,25 @@ function ConfigurationTab({ agent }: { agent: AgentDetail }) {
   );
 }
 
-function ConversationsTab() {
+function ConversationsTab({
+  agentId,
+  conversationsData,
+}: {
+  agentId: string;
+  conversationsData: ConversationRow[];
+}) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Recent conversations for this agent
         </p>
-        <Button variant="outline" size="sm">
-          <Eye className="h-3.5 w-3.5 mr-1.5" />
-          View All
-        </Button>
+        <Link href={`/conversations?agent=${agentId}`}>
+          <Button variant="outline" size="sm">
+            <Eye className="h-3.5 w-3.5 mr-1.5" />
+            View All
+          </Button>
+        </Link>
       </div>
       {conversationsData.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -472,6 +511,7 @@ function ConversationsTab() {
 
 function ApiKeysTab() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const apiKeysData: ApiKey[] = []; // TODO: fetch from API when endpoint is available
 
   function handleCopy(keyId: string, prefix: string) {
     navigator.clipboard.writeText(prefix);
@@ -565,19 +605,103 @@ function ApiKeysTab() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
 export default function AgentDetailPage() {
   const params = useParams();
   const agentId = params.id as string;
-  const agent = agentsMap[agentId];
 
-  if (!agent) {
+  const [agent, setAgent] = useState<AgentResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [configData, setConfigData] = useState({
+    actionsCount: 0,
+    statesCount: 0,
+    kbDocsCount: 0,
+    guardrailsCount: 0,
+  });
+  const [conversationsData, setConversationsData] = useState<ConversationRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch agent details
+        const agentData = await agentApi.get(agentId);
+        if (cancelled) return;
+        setAgent(agentData);
+
+        // Fetch configuration data in parallel
+        const [actionsRes, statesRes, channelsRes, guardrailsRes, convsRes] = await Promise.allSettled([
+          actionApi.list(agentId),
+          stateApi.get(agentId),
+          channelApi.list(agentId),
+          guardrailApi.list(agentId),
+          conversationApi.list({ agent_id: agentId }),
+        ]);
+
+        if (cancelled) return;
+
+        const actionsData = actionsRes.status === "fulfilled" ? actionsRes.value : [];
+        const statesData = statesRes.status === "fulfilled" ? statesRes.value : {};
+        const guardrailsData = guardrailsRes.status === "fulfilled" ? guardrailsRes.value : [];
+
+        setConfigData({
+          actionsCount: agentData.actionsCount ?? (Array.isArray(actionsData) ? actionsData.length : (actionsData?.items?.length ?? 0)),
+          statesCount: agentData.statesCount ?? (statesData?.nodes?.length ?? 0),
+          kbDocsCount: agentData.kbDocsCount ?? 0,
+          guardrailsCount: agentData.guardrailsCount ?? (Array.isArray(guardrailsData) ? guardrailsData.length : (guardrailsData?.items?.length ?? 0)),
+        });
+
+        // Map conversations
+        if (convsRes.status === "fulfilled") {
+          const convItems = convsRes.value?.items ?? (Array.isArray(convsRes.value) ? convsRes.value : []);
+          setConversationsData(
+            convItems.map((c: any) => ({
+              id: c.id,
+              phoneOrChannel: c.contact ?? c.contactName ?? "--",
+              channel: c.channel ?? "chatbot",
+              status: c.status ?? "completed",
+              duration: c.duration ?? "--",
+              startedAt: c.startedAt ?? c.startedRelative ?? "--",
+              currentState: c.currentState ?? "--",
+            }))
+          );
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error("Failed to load agent:", err);
+          setError(err.message);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
+
+  if (loading) return <DetailSkeleton />;
+
+  if (error || !agent) {
     return (
       <div className="p-6">
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Bot className="h-12 w-12 text-muted-foreground/40 mb-4" />
           <h3 className="text-lg font-semibold">Agent not found</h3>
           <p className="text-sm text-muted-foreground mt-1 mb-4">
-            The agent with ID &quot;{agentId}&quot; does not exist.
+            {error
+              ? `Error: ${error}`
+              : `The agent with ID "${agentId}" does not exist.`}
           </p>
           <Link href="/agents">
             <Button variant="outline">
@@ -590,7 +714,7 @@ export default function AgentDetailPage() {
     );
   }
 
-  const status = statusConfig[agent.status];
+  const status = statusConfig[(agent.status as AgentStatus) ?? "draft"];
 
   return (
     <div className="p-6 space-y-6">
@@ -656,11 +780,11 @@ export default function AgentDetailPage() {
         </TabsContent>
 
         <TabsContent value="configuration" className="mt-4">
-          <ConfigurationTab agent={agent} />
+          <ConfigurationTab agent={agent} configData={configData} />
         </TabsContent>
 
         <TabsContent value="conversations" className="mt-4">
-          <ConversationsTab />
+          <ConversationsTab agentId={agentId} conversationsData={conversationsData} />
         </TabsContent>
 
         <TabsContent value="api-keys" className="mt-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   MessageSquare,
@@ -9,7 +9,6 @@ import {
   Search,
   Download,
   Clock,
-  Activity,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -31,26 +30,16 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  conversationApi,
+  agentApi,
+  type ConversationListItem,
+  type AgentResponse,
+} from "@/lib/api";
 
 type Channel = "voice" | "whatsapp" | "chatbot";
 type ConversationStatus = "active" | "completed" | "escalated" | "dropped";
-
-interface Conversation {
-  id: string;
-  contact: string;
-  contactName: string;
-  agentName: string;
-  channel: Channel;
-  currentState: string;
-  messages: number;
-  duration: string;
-  status: ConversationStatus;
-  startedAt: string;
-  startedRelative: string;
-}
-
-// TODO: fetch from API
-const conversations: Conversation[] = [];
 
 const channelConfig: Record<
   Channel,
@@ -102,35 +91,121 @@ const statusConfig: Record<
   },
 };
 
-// TODO: fetch from API
-const agentNames: string[] = [];
+function TableSkeleton() {
+  return (
+    <div className="rounded-xl border bg-card ring-1 ring-foreground/10">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Contact</TableHead>
+            <TableHead>Agent</TableHead>
+            <TableHead>Channel</TableHead>
+            <TableHead>Current State</TableHead>
+            <TableHead className="text-center">Messages</TableHead>
+            <TableHead>Duration</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Started</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <TableRow key={i}>
+              <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+              <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+              <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+              <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+              <TableCell className="text-center"><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
+              <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+              <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+              <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
 
 export default function ConversationsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [channelFilter, setChannelFilter] = useState<string>("all");
   const [agentFilter, setAgentFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
 
-  const filteredConversations = useMemo(() => {
-    return conversations.filter((conv) => {
-      const matchesSearch =
-        searchQuery === "" ||
-        conv.contact.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        conv.contactName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        conv.agentName.toLowerCase().includes(searchQuery.toLowerCase());
+  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [agentNames, setAgentNames] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-      const matchesChannel =
-        channelFilter === "all" || conv.channel === channelFilter;
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-      const matchesAgent =
-        agentFilter === "all" || conv.agentName === agentFilter;
+  // Fetch agent names for the filter dropdown
+  useEffect(() => {
+    agentApi
+      .list()
+      .then((res) => {
+        const items = res.items ?? res;
+        if (Array.isArray(items)) {
+          setAgentNames(items.map((a: AgentResponse) => a.name).filter(Boolean));
+        }
+      })
+      .catch(() => {
+        // non-critical, leave dropdown empty
+      });
+  }, []);
 
-      const matchesStatus =
-        statusFilter === "all" || conv.status === statusFilter;
+  const fetchConversations = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-      return matchesSearch && matchesChannel && matchesAgent && matchesStatus;
-    });
-  }, [searchQuery, channelFilter, agentFilter, statusFilter]);
+      let res;
+      if (searchQuery.trim()) {
+        res = await conversationApi.search(searchQuery.trim());
+      } else {
+        res = await conversationApi.list({
+          agent_id: agentFilter !== "all" ? agentFilter : undefined,
+          status: statusFilter !== "all" ? statusFilter : undefined,
+          page,
+        });
+      }
+
+      const items = res.items ?? (Array.isArray(res) ? res : []);
+      setConversations(items);
+      setTotal(res.total ?? items.length);
+    } catch (err: any) {
+      console.error("Failed to load conversations:", err);
+      setError(err.message);
+      setConversations([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [agentFilter, statusFilter, page, searchQuery]);
+
+  // Debounced fetch for search, immediate for filter changes
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+
+    if (searchQuery) {
+      searchTimerRef.current = setTimeout(() => {
+        fetchConversations();
+      }, 400);
+    } else {
+      fetchConversations();
+    }
+
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    };
+  }, [fetchConversations, searchQuery]);
+
+  // Client-side channel filter (API may not support channel filter directly)
+  const filteredConversations = conversations.filter((conv) => {
+    return channelFilter === "all" || conv.channel === channelFilter;
+  });
 
   return (
     <div className="p-6 space-y-6">
@@ -178,7 +253,7 @@ export default function ConversationsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={agentFilter} onValueChange={(v) => setAgentFilter(v ?? "all")}>
+        <Select value={agentFilter} onValueChange={(v) => { setAgentFilter(v ?? "all"); setPage(1); }}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Agent" />
           </SelectTrigger>
@@ -192,7 +267,7 @@ export default function ConversationsPage() {
           </SelectContent>
         </Select>
 
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "all")}>
+        <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v ?? "all"); setPage(1); }}>
           <SelectTrigger className="w-[150px]">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
@@ -206,140 +281,160 @@ export default function ConversationsPage() {
         </Select>
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl border bg-card ring-1 ring-foreground/10">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Contact</TableHead>
-              <TableHead>Agent</TableHead>
-              <TableHead>Channel</TableHead>
-              <TableHead>Current State</TableHead>
-              <TableHead className="text-center">Messages</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Started</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredConversations.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center">
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <MessageSquare className="h-8 w-8 opacity-40" />
-                    <p className="text-sm font-medium">No conversations yet</p>
-                    <p className="text-xs">Conversations will appear here once agents start interacting</p>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredConversations.map((conv) => {
-                const channel = channelConfig[conv.channel];
-                const status = statusConfig[conv.status];
-                const ChannelIcon = channel.icon;
+      {error && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Could not load conversations. Showing empty state.
+        </div>
+      )}
 
-                return (
-                  <TableRow key={conv.id} className="cursor-pointer">
-                    <TableCell>
-                      <Link
-                        href={`/conversations/${conv.id}`}
-                        className="block"
-                      >
-                        <div className="font-medium text-foreground">
-                          {conv.contactName}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {conv.contact}
-                        </div>
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/conversations/${conv.id}`}
-                        className="block text-sm"
-                      >
-                        {conv.agentName}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/conversations/${conv.id}`} className="block">
-                        <Badge
-                          variant="secondary"
-                          className={`gap-1 font-normal ${channel.className}`}
+      {/* Table */}
+      {loading ? (
+        <TableSkeleton />
+      ) : (
+        <div className="rounded-xl border bg-card ring-1 ring-foreground/10">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Contact</TableHead>
+                <TableHead>Agent</TableHead>
+                <TableHead>Channel</TableHead>
+                <TableHead>Current State</TableHead>
+                <TableHead className="text-center">Messages</TableHead>
+                <TableHead>Duration</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Started</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredConversations.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="h-24 text-center">
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <MessageSquare className="h-8 w-8 opacity-40" />
+                      <p className="text-sm font-medium">No conversations yet</p>
+                      <p className="text-xs">Conversations will appear here once agents start interacting</p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredConversations.map((conv) => {
+                  const channel = channelConfig[conv.channel as Channel] ?? channelConfig.chatbot;
+                  const status = statusConfig[conv.status as ConversationStatus] ?? statusConfig.completed;
+                  const ChannelIcon = channel.icon;
+
+                  return (
+                    <TableRow key={conv.id} className="cursor-pointer">
+                      <TableCell>
+                        <Link
+                          href={`/conversations/${conv.id}`}
+                          className="block"
                         >
-                          <ChannelIcon className="h-3 w-3" />
-                          {channel.label}
-                        </Badge>
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/conversations/${conv.id}`} className="block">
-                        <Badge variant="outline" className="font-normal">
-                          {conv.currentState}
-                        </Badge>
-                      </Link>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Link
-                        href={`/conversations/${conv.id}`}
-                        className="block text-sm tabular-nums"
-                      >
-                        {conv.messages}
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/conversations/${conv.id}`}
-                        className="block text-sm tabular-nums text-muted-foreground"
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {conv.duration}
-                        </span>
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link href={`/conversations/${conv.id}`} className="block">
-                        <span className="inline-flex items-center gap-1.5">
-                          <span
-                            className={`h-2 w-2 rounded-full ${status.dotClass} ${
-                              conv.status === "active" ? "animate-pulse" : ""
-                            }`}
-                          />
-                          <span className={`text-sm font-medium ${status.textClass}`}>
-                            {status.label}
+                          <div className="font-medium text-foreground">
+                            {conv.contactName}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {conv.contact}
+                          </div>
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Link
+                          href={`/conversations/${conv.id}`}
+                          className="block text-sm"
+                        >
+                          {conv.agentName}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/conversations/${conv.id}`} className="block">
+                          <Badge
+                            variant="secondary"
+                            className={`gap-1 font-normal ${channel.className}`}
+                          >
+                            <ChannelIcon className="h-3 w-3" />
+                            {channel.label}
+                          </Badge>
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/conversations/${conv.id}`} className="block">
+                          <Badge variant="outline" className="font-normal">
+                            {conv.currentState}
+                          </Badge>
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Link
+                          href={`/conversations/${conv.id}`}
+                          className="block text-sm tabular-nums"
+                        >
+                          {conv.messages}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Link
+                          href={`/conversations/${conv.id}`}
+                          className="block text-sm tabular-nums text-muted-foreground"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            {conv.duration}
                           </span>
-                        </span>
-                      </Link>
-                    </TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/conversations/${conv.id}`}
-                        className="block text-sm text-muted-foreground"
-                      >
-                        {conv.startedRelative}
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/conversations/${conv.id}`} className="block">
+                          <span className="inline-flex items-center gap-1.5">
+                            <span
+                              className={`h-2 w-2 rounded-full ${status.dotClass} ${
+                                conv.status === "active" ? "animate-pulse" : ""
+                              }`}
+                            />
+                            <span className={`text-sm font-medium ${status.textClass}`}>
+                              {status.label}
+                            </span>
+                          </span>
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Link
+                          href={`/conversations/${conv.id}`}
+                          className="block text-sm text-muted-foreground"
+                        >
+                          {conv.startedRelative}
+                        </Link>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Showing <span className="font-medium text-foreground">{filteredConversations.length === 0 ? "0" : `1-${filteredConversations.length}`}</span> of{" "}
-          <span className="font-medium text-foreground">{filteredConversations.length}</span> conversations
+          <span className="font-medium text-foreground">{total}</span> conversations
         </p>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
             <ChevronLeft className="h-4 w-4" />
             Previous
           </Button>
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={filteredConversations.length < 20}
+            onClick={() => setPage((p) => p + 1)}
+          >
             Next
             <ChevronRight className="h-4 w-4" />
           </Button>

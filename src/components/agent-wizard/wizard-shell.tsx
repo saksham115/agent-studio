@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -14,6 +15,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   SaveIcon,
+  Loader2Icon,
 } from "lucide-react";
 import { StepIdentity } from "./step-identity";
 import { StepKnowledgeBase } from "./step-knowledge-base";
@@ -21,6 +23,14 @@ import { StepActions } from "./step-actions";
 import { StepStateDiagram } from "./step-state-diagram";
 import { StepChannels } from "./step-channels";
 import { StepGuardrails } from "./step-guardrails";
+import {
+  agentApi,
+  kbApi,
+  actionApi,
+  stateApi,
+  channelApi,
+  guardrailApi,
+} from "@/lib/api";
 
 const STEPS = [
   { id: 1, title: "Identity & Prompt", icon: UserIcon },
@@ -137,11 +147,11 @@ const INITIAL_FORM_DATA: WizardFormData = {
     tone: "",
   },
   knowledgeBase: {
-    documents: [], // TODO: populate from API
-    structuredSources: [], // TODO: populate from API
+    documents: [],
+    structuredSources: [],
   },
   actions: {
-    actions: [], // TODO: populate from API
+    actions: [],
   },
   stateDiagram: {
     nodes: [],
@@ -186,7 +196,7 @@ const INITIAL_FORM_DATA: WizardFormData = {
     },
   },
   guardrails: {
-    guardrails: [], // TODO: populate from API
+    guardrails: [],
   },
 };
 
@@ -223,6 +233,10 @@ function isStepComplete(step: number, formData: WizardFormData): boolean {
 export function WizardShell() {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<WizardFormData>(INITIAL_FORM_DATA);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedAgentId, setSavedAgentId] = useState<string | null>(null);
+  const router = useRouter();
 
   function goToStep(step: number) {
     if (step >= 1 && step <= 6) {
@@ -230,9 +244,95 @@ export function WizardShell() {
     }
   }
 
-  function handleSave() {
-    // In production this would POST to the API
-    console.log("Saving agent configuration:", formData);
+  async function handleSave(isDraft = true) {
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      // Build channels list from enabled channels
+      const enabledChannels: ("voice" | "whatsapp" | "chatbot")[] = [];
+      if (formData.channels.voice.enabled) enabledChannels.push("voice");
+      if (formData.channels.whatsapp.enabled) enabledChannels.push("whatsapp");
+      if (formData.channels.chatbot.enabled) enabledChannels.push("chatbot");
+
+      // Create or update the agent
+      let agentId = savedAgentId;
+      const agentPayload = {
+        name: formData.identity.agentName,
+        persona: formData.identity.personaName,
+        customer: formData.identity.customer,
+        systemPrompt: formData.identity.systemPrompt,
+        languages: formData.identity.languages,
+        tone: formData.identity.tone,
+        channels: enabledChannels,
+      };
+
+      if (agentId) {
+        await agentApi.update(agentId, agentPayload);
+      } else {
+        const created = await agentApi.create(agentPayload);
+        agentId = created.id;
+        setSavedAgentId(agentId);
+      }
+
+      // Save remaining configuration in parallel (best-effort)
+      const savePromises: Promise<any>[] = [];
+
+      // Save actions
+      if (formData.actions.actions.length > 0) {
+        for (const action of formData.actions.actions) {
+          savePromises.push(
+            actionApi.create(agentId, {
+              name: action.name,
+              description: action.description,
+              type: action.type,
+              parameters: action.parameters,
+              requireConfirmation: action.requireConfirmation,
+            })
+          );
+        }
+      }
+
+      // Save state diagram
+      if (formData.stateDiagram.nodes.length > 0) {
+        savePromises.push(
+          stateApi.save(agentId, formData.stateDiagram)
+        );
+      }
+
+      // Save channel configurations
+      for (const [channelType, channelData] of Object.entries(formData.channels)) {
+        if (channelData.enabled) {
+          savePromises.push(
+            channelApi.update(agentId, channelType, channelData.config)
+          );
+        }
+      }
+
+      // Save guardrails
+      if (formData.guardrails.guardrails.length > 0) {
+        savePromises.push(
+          guardrailApi.bulkUpdate(agentId, formData.guardrails.guardrails)
+        );
+      }
+
+      // Wait for all saves
+      const results = await Promise.allSettled(savePromises);
+      const failures = results.filter((r) => r.status === "rejected");
+      if (failures.length > 0) {
+        console.warn(`${failures.length} sub-resource save(s) failed:`, failures);
+      }
+
+      // Redirect to the agent detail page after a full save
+      if (!isDraft) {
+        router.push(`/agents/${agentId}`);
+      }
+    } catch (err: any) {
+      console.error("Failed to save agent:", err);
+      setSaveError(err.message || "Failed to save agent");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function renderStep() {
@@ -299,9 +399,23 @@ export function WizardShell() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleSave}>
-            <SaveIcon className="size-3.5" />
-            Save Draft
+          {saveError && (
+            <span className="text-xs text-red-600 dark:text-red-400 mr-2">
+              {saveError}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleSave(true)}
+            disabled={saving}
+          >
+            {saving ? (
+              <Loader2Icon className="size-3.5 animate-spin" />
+            ) : (
+              <SaveIcon className="size-3.5" />
+            )}
+            {saving ? "Saving..." : "Save Draft"}
           </Button>
         </div>
       </div>
@@ -452,9 +566,17 @@ export function WizardShell() {
 
             <div className="flex items-center gap-2">
               {currentStep === 6 ? (
-                <Button size="sm" onClick={handleSave}>
-                  <SaveIcon className="size-3.5" />
-                  Save Agent
+                <Button
+                  size="sm"
+                  onClick={() => handleSave(false)}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <Loader2Icon className="size-3.5 animate-spin" />
+                  ) : (
+                    <SaveIcon className="size-3.5" />
+                  )}
+                  {saving ? "Saving..." : "Save Agent"}
                 </Button>
               ) : (
                 <Button

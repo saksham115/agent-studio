@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Bot,
@@ -30,27 +30,11 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { agentApi, type AgentResponse } from "@/lib/api";
 
 type AgentStatus = "active" | "draft" | "paused";
 type Channel = "voice" | "whatsapp" | "chatbot";
-
-interface Agent {
-  id: string;
-  name: string;
-  persona: string;
-  customer: string;
-  status: AgentStatus;
-  channels: Channel[];
-  conversations: number;
-  completionRate: number;
-  createdAt: string;
-}
-
-// TODO: fetch from API
-const agents: Agent[] = [];
-
-// TODO: fetch from API
-const customers: string[] = [];
 
 const channelConfig: Record<Channel, { icon: typeof Phone; label: string }> = {
   voice: { icon: Phone, label: "Voice" },
@@ -86,28 +70,88 @@ function formatNumber(n: number): string {
   return n.toString();
 }
 
+function AgentCardSkeleton() {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+          <Skeleton className="h-5 w-16" />
+        </div>
+        <Skeleton className="h-3 w-24 mt-1" />
+      </CardHeader>
+      <CardContent className="flex-1 space-y-4">
+        <div className="flex gap-1.5">
+          <Skeleton className="h-6 w-16" />
+          <Skeleton className="h-6 w-20" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-6 w-12" />
+          </div>
+          <div className="space-y-1">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-6 w-12" />
+          </div>
+        </div>
+      </CardContent>
+      <CardFooter className="gap-2">
+        <Skeleton className="h-8 flex-1" />
+        <Skeleton className="h-8 flex-1" />
+      </CardFooter>
+    </Card>
+  );
+}
+
 export default function AgentsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [customerFilter, setCustomerFilter] = useState<string>("all");
 
-  const filteredAgents = useMemo(() => {
-    return agents.filter((agent) => {
-      const matchesSearch =
-        searchQuery === "" ||
-        agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        agent.persona.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        agent.customer.toLowerCase().includes(searchQuery.toLowerCase());
+  const [agents, setAgents] = useState<AgentResponse[]>([]);
+  const [customers, setCustomers] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-      const matchesStatus =
-        statusFilter === "all" || agent.status === statusFilter;
+  const fetchAgents = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await agentApi.list({
+        status: statusFilter !== "all" ? statusFilter : undefined,
+        search: searchQuery || undefined,
+      });
+      const items = res.items ?? res;
+      setAgents(Array.isArray(items) ? items : []);
+      // Derive unique customer names for the filter dropdown
+      const uniqueCustomers = Array.from(
+        new Set((Array.isArray(items) ? items : []).map((a: AgentResponse) => a.customer).filter(Boolean))
+      );
+      setCustomers(uniqueCustomers);
+    } catch (err: any) {
+      console.error("Failed to load agents:", err);
+      setError(err.message);
+      setAgents([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, searchQuery]);
 
-      const matchesCustomer =
-        customerFilter === "all" || agent.customer === customerFilter;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchAgents();
+    }, searchQuery ? 300 : 0); // debounce search
+    return () => clearTimeout(timer);
+  }, [fetchAgents, searchQuery]);
 
-      return matchesSearch && matchesStatus && matchesCustomer;
-    });
-  }, [searchQuery, statusFilter, customerFilter]);
+  // Client-side customer filter (agents already fetched with status/search)
+  const filteredAgents = agents.filter((agent) => {
+    return customerFilter === "all" || agent.customer === customerFilter;
+  });
 
   return (
     <div className="p-6 space-y-6">
@@ -169,8 +213,20 @@ export default function AgentsPage() {
         </Select>
       </div>
 
+      {error && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Could not load agents. Showing empty state.
+        </div>
+      )}
+
       {/* Agent Cards Grid */}
-      {filteredAgents.length === 0 ? (
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <AgentCardSkeleton key={i} />
+          ))}
+        </div>
+      ) : filteredAgents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Bot className="h-12 w-12 text-muted-foreground/50 mb-4" />
           <h3 className="text-lg font-medium">No agents yet</h3>
@@ -181,7 +237,7 @@ export default function AgentsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredAgents.map((agent) => {
-            const status = statusConfig[agent.status];
+            const status = statusConfig[agent.status as AgentStatus] ?? statusConfig.draft;
             return (
               <Card key={agent.id} className="flex flex-col">
                 <CardHeader>
@@ -207,8 +263,9 @@ export default function AgentsPage() {
                 <CardContent className="flex-1 space-y-4">
                   {/* Channel Badges */}
                   <div className="flex flex-wrap gap-1.5">
-                    {agent.channels.map((channel) => {
-                      const config = channelConfig[channel];
+                    {(agent.channels ?? []).map((channel) => {
+                      const config = channelConfig[channel as Channel];
+                      if (!config) return null;
                       const Icon = config.icon;
                       return (
                         <Badge
@@ -230,7 +287,7 @@ export default function AgentsPage() {
                         Conversations
                       </p>
                       <p className="text-lg font-semibold leading-none">
-                        {formatNumber(agent.conversations)}
+                        {formatNumber(agent.conversations ?? 0)}
                       </p>
                     </div>
                     <div className="space-y-1">
@@ -238,7 +295,7 @@ export default function AgentsPage() {
                         Completion Rate
                       </p>
                       <p className="text-lg font-semibold leading-none">
-                        {agent.completionRate > 0
+                        {(agent.completionRate ?? 0) > 0
                           ? `${agent.completionRate}%`
                           : "--"}
                       </p>

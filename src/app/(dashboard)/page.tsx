@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import {
   Phone,
   MessageCircle,
@@ -42,73 +43,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-
-// ---------------------------------------------------------------------------
-// Data — TODO: fetch from API
-// ---------------------------------------------------------------------------
-
-const kpiCards = [
-  {
-    title: "Total Agents",
-    value: "0",
-    subtitle: "0 active, 0 draft",
-    icon: Bot,
-    trend: null as null | { value: string; direction: "up" | "down" },
-  },
-  {
-    title: "Total Conversations",
-    value: "0",
-    subtitle: "Today",
-    icon: MessageCircle,
-    trend: null as null | { value: string; direction: "up" | "down" },
-  },
-  {
-    title: "Completion Rate",
-    value: "--",
-    subtitle: "vs last week",
-    icon: Activity,
-    trend: null as null | { value: string; direction: "up" | "down" },
-  },
-  {
-    title: "Avg Response Time",
-    value: "--",
-    subtitle: "vs last week",
-    icon: Clock,
-    trend: null as null | { value: string; direction: "up" | "down" },
-  },
-]
-
-// TODO: fetch from API
-const conversationData: { date: string; voice: number; whatsapp: number; chatbot: number }[] = []
-
-// TODO: fetch from API
-const funnelData: { stage: string; count: number; percent: number; fill: string }[] = []
-
-type Channel = "Voice" | "WhatsApp" | "Chatbot"
-
-interface RecentConversation {
-  id: string
-  contact: string
-  agent: string
-  channel: Channel
-  stateReached: string
-  timeAgo: string
-}
-
-// TODO: fetch from API
-const recentConversations: RecentConversation[] = []
-
-// TODO: fetch from API
-const topAgents: {
-  name: string
-  conversations: number
-  completionRate: number
-  channels: Channel[]
-}[] = []
+import { Skeleton } from "@/components/ui/skeleton"
+import { dashboardApi, type DashboardOverview } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+type Channel = "Voice" | "WhatsApp" | "Chatbot"
 
 const channelConfig: Record<Channel, { color: string; icon: React.ElementType }> = {
   Voice: { color: "bg-blue-500/15 text-blue-700 dark:text-blue-400", icon: Phone },
@@ -178,7 +120,7 @@ function FunnelTooltip({
   payload,
 }: {
   active?: boolean
-  payload?: Array<{ payload: (typeof funnelData)[number] }>
+  payload?: Array<{ payload: { stage: string; count: number; percent: number; fill: string } }>
 }) {
   if (!active || !payload?.length) return null
   const data = payload[0].payload
@@ -193,10 +135,130 @@ function FunnelTooltip({
 }
 
 // ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function DashboardSkeleton() {
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <Skeleton className="h-8 w-40" />
+          <Skeleton className="h-4 w-64 mt-1" />
+        </div>
+        <Skeleton className="h-6 w-24" />
+      </div>
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i}>
+            <CardHeader className="flex flex-row items-center justify-between pb-0">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-4 w-4" />
+            </CardHeader>
+            <CardContent className="pt-0">
+              <Skeleton className="h-8 w-16 mt-2" />
+              <Skeleton className="h-3 w-32 mt-2" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-7">
+        <Card className="lg:col-span-4">
+          <CardHeader>
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-4 w-64 mt-1" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[300px] w-full" />
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-3">
+          <CardHeader>
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-4 w-56 mt-1" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[300px] w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page component
 // ---------------------------------------------------------------------------
 
 export default function DashboardPage() {
+  const [data, setData] = useState<DashboardOverview | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    dashboardApi
+      .overview()
+      .then((res) => {
+        if (!cancelled) {
+          setData(res)
+          setError(null)
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to load dashboard:", err)
+          setError(err.message)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (loading) return <DashboardSkeleton />
+
+  // Build KPI cards from API data or fallback to empty
+  const kpiCards = [
+    {
+      title: "Total Agents",
+      value: data ? String(data.totalAgents) : "0",
+      subtitle: data ? `${data.activeAgents} active, ${data.draftAgents} draft` : "0 active, 0 draft",
+      icon: Bot,
+      trend: null as null | { value: string; direction: "up" | "down" },
+    },
+    {
+      title: "Total Conversations",
+      value: data ? String(data.totalConversations) : "0",
+      subtitle: "Today",
+      icon: MessageCircle,
+      trend: null as null | { value: string; direction: "up" | "down" },
+    },
+    {
+      title: "Completion Rate",
+      value: data?.completionRate != null ? `${data.completionRate}%` : "--",
+      subtitle: "vs last week",
+      icon: Activity,
+      trend: data?.completionRateTrend ?? null,
+    },
+    {
+      title: "Avg Response Time",
+      value: data?.avgResponseTime ?? "--",
+      subtitle: "vs last week",
+      icon: Clock,
+      trend: data?.avgResponseTimeTrend ?? null,
+    },
+  ]
+
+  const conversationData = data?.conversationData ?? []
+  const funnelData = data?.funnelData ?? []
+  const recentConversations = data?.recentConversations ?? []
+  const topAgents = data?.topAgents ?? []
+
   return (
     <div className="p-6 space-y-6">
       {/* ---------------------------------------------------------------- */}
@@ -206,13 +268,19 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Organisation-wide overview for today, 4 Apr 2026
+            Organisation-wide overview for today, {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
           </p>
         </div>
         <Badge variant="secondary" className="w-fit text-xs">
           Last 7 days
         </Badge>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Could not load dashboard data. Showing empty state.
+        </div>
+      )}
 
       {/* ---------------------------------------------------------------- */}
       {/* KPI Cards                                                        */}
