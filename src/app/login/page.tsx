@@ -12,19 +12,24 @@ export default async function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
+      {/* Subtle radial glow behind the card */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="h-[480px] w-[480px] rounded-full bg-primary/5 blur-3xl" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-sm">
         {/* Card */}
-        <div className="rounded-xl border border-border bg-card p-8 shadow-lg ring-1 ring-foreground/5">
+        <div className="rounded-2xl border border-border/60 bg-card p-10 shadow-none ring-1 ring-white/[0.04]">
           {/* Branding */}
-          <div className="mb-8 flex flex-col items-center gap-3">
-            <div className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md">
-              <Zap className="size-6" />
+          <div className="mb-10 flex flex-col items-center gap-4">
+            <div className="flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+              <Zap className="size-7" />
             </div>
             <div className="text-center">
-              <h1 className="text-xl font-bold tracking-tight text-foreground">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
                 Agent Studio
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1.5 text-sm text-muted-foreground">
                 AI-powered sales agent platform
               </p>
             </div>
@@ -34,7 +39,7 @@ export default async function LoginPage() {
           <form action={signInWithGoogle}>
             <button
               type="submit"
-              className="flex w-full items-center justify-center gap-3 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="flex w-full items-center justify-center gap-3 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <svg className="size-5" viewBox="0 0 24 24" aria-hidden="true">
                 <path
@@ -60,7 +65,7 @@ export default async function LoginPage() {
         </div>
 
         {/* Footer */}
-        <p className="mt-6 text-center text-xs text-muted-foreground/60">
+        <p className="mt-8 text-center text-xs text-muted-foreground/50">
           Internal use only
         </p>
       </div>

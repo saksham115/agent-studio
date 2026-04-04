@@ -68,31 +68,31 @@ const CATEGORIES = [
 ];
 
 const FILE_TYPE_ICONS: Record<string, React.ReactNode> = {
-  PDF: <FileTextIcon className="size-4 text-red-500" />,
-  DOCX: <FileIcon className="size-4 text-blue-500" />,
-  CSV: <TableIcon className="size-4 text-green-500" />,
+  PDF: <FileTextIcon className="size-4 text-destructive" />,
+  DOCX: <FileIcon className="size-4 text-chart-2" />,
+  CSV: <TableIcon className="size-4 text-primary" />,
 };
 
 const SOURCE_TYPE_ICONS: Record<string, React.ReactNode> = {
-  API: <GlobeIcon className="size-4 text-purple-500" />,
-  Database: <DatabaseIcon className="size-4 text-blue-500" />,
-  "Static JSON": <FileJsonIcon className="size-4 text-amber-500" />,
+  API: <GlobeIcon className="size-4 text-chart-4" />,
+  Database: <DatabaseIcon className="size-4 text-chart-2" />,
+  "Static JSON": <FileJsonIcon className="size-4 text-chart-3" />,
 };
 
 function typeBadgeVariant(type: string) {
   switch (type) {
     case "PDF":
-      return "bg-red-500/10 text-red-600 dark:text-red-400";
+      return "bg-destructive/10 text-destructive";
     case "DOCX":
-      return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+      return "bg-chart-2/10 text-chart-2";
     case "CSV":
-      return "bg-green-500/10 text-green-600 dark:text-green-400";
+      return "bg-primary/10 text-primary";
     case "API":
-      return "bg-purple-500/10 text-purple-600 dark:text-purple-400";
+      return "bg-chart-4/10 text-chart-4";
     case "Database":
-      return "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+      return "bg-chart-2/10 text-chart-2";
     case "Static JSON":
-      return "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+      return "bg-chart-3/10 text-chart-3";
     default:
       return "";
   }
@@ -103,7 +103,7 @@ function statusBadge(status: string) {
     case "ready":
     case "connected":
       return (
-        <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+        <span className="inline-flex items-center gap-1 text-xs text-primary">
           <CheckCircle2Icon className="size-3" />
           {status === "ready" ? "Ready" : "Connected"}
         </span>

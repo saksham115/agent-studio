@@ -82,17 +82,17 @@ const statusConfig: Record<AgentStatus, { label: string; className: string }> =
     active: {
       label: "Active",
       className:
-        "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400",
+        "bg-primary/15 text-primary",
     },
     draft: {
       label: "Draft",
       className:
-        "bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400",
+        "bg-muted text-muted-foreground",
     },
     paused: {
       label: "Paused",
       className:
-        "bg-zinc-500/15 text-zinc-600 dark:bg-zinc-500/20 dark:text-zinc-400",
+        "bg-warning/15 text-warning",
     },
   };
 
@@ -109,22 +109,22 @@ const convStatusConfig: Record<
   completed: {
     label: "Completed",
     className:
-      "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400",
+      "bg-primary/15 text-primary",
   },
   dropped: {
     label: "Dropped",
     className:
-      "bg-red-500/15 text-red-600 dark:bg-red-500/20 dark:text-red-400",
+      "bg-destructive/15 text-destructive",
   },
   escalated: {
     label: "Escalated",
     className:
-      "bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400",
+      "bg-warning/15 text-warning",
   },
   "in-progress": {
     label: "In Progress",
     className:
-      "bg-blue-500/15 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400",
+      "bg-chart-2/15 text-chart-2",
   },
 };
 
@@ -342,28 +342,28 @@ function ConfigurationTab({
       description: `Persona: ${agent.persona} | Tone: ${agent.tone ?? "--"} | Languages: ${(agent.languages ?? []).join(", ") || "--"}`,
       icon: Bot,
       detail: "Fully configured",
-      color: "text-blue-500",
+      color: "text-chart-2",
     },
     {
       title: "Knowledge Base",
       description: `${configData.kbDocsCount} documents uploaded and indexed`,
       icon: Database,
       detail: `${configData.kbDocsCount} docs`,
-      color: "text-violet-500",
+      color: "text-chart-4",
     },
     {
       title: "Actions",
       description: `${configData.actionsCount} actions configured (API calls, link generation, notifications)`,
       icon: Zap,
       detail: `${configData.actionsCount} actions`,
-      color: "text-amber-500",
+      color: "text-chart-3",
     },
     {
       title: "State Diagram",
       description: `${configData.statesCount} states defined in the sales lifecycle flow`,
       icon: GitBranch,
       detail: `${configData.statesCount} states`,
-      color: "text-emerald-500",
+      color: "text-primary",
     },
     {
       title: "Channels",
@@ -372,7 +372,7 @@ function ConfigurationTab({
         .join(", ") || "None",
       icon: Globe,
       detail: `${(agent.channels ?? []).length} channels`,
-      color: "text-cyan-500",
+      color: "text-chart-2",
     },
     {
       title: "Guardrails",
@@ -567,8 +567,8 @@ function ApiKeysTab() {
                       variant="secondary"
                       className={
                         apiKey.status === "active"
-                          ? "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400"
-                          : "bg-zinc-500/15 text-zinc-600 dark:bg-zinc-500/20 dark:text-zinc-400"
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted text-muted-foreground"
                       }
                     >
                       {apiKey.status === "active" ? "Active" : "Revoked"}
@@ -588,7 +588,7 @@ function ApiKeysTab() {
                       disabled={apiKey.status === "revoked"}
                     >
                       {copiedId === apiKey.id ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                       ) : (
                         <Copy className="h-3.5 w-3.5" />
                       )}

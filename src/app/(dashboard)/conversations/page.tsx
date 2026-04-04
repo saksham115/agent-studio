@@ -49,19 +49,19 @@ const channelConfig: Record<
     icon: Phone,
     label: "Voice",
     className:
-      "bg-blue-500/15 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400",
+      "bg-chart-2/15 text-chart-2",
   },
   whatsapp: {
     icon: MessageSquare,
     label: "WhatsApp",
     className:
-      "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400",
+      "bg-primary/15 text-primary",
   },
   chatbot: {
     icon: Globe,
     label: "Chatbot",
     className:
-      "bg-purple-500/15 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400",
+      "bg-chart-4/15 text-chart-4",
   },
 };
 
@@ -71,23 +71,23 @@ const statusConfig: Record<
 > = {
   active: {
     label: "Active",
-    dotClass: "bg-emerald-500",
-    textClass: "text-emerald-600 dark:text-emerald-400",
+    dotClass: "bg-primary",
+    textClass: "text-primary",
   },
   completed: {
     label: "Completed",
-    dotClass: "bg-blue-500",
-    textClass: "text-blue-600 dark:text-blue-400",
+    dotClass: "bg-chart-2",
+    textClass: "text-chart-2",
   },
   escalated: {
     label: "Escalated",
-    dotClass: "bg-amber-500",
-    textClass: "text-amber-600 dark:text-amber-400",
+    dotClass: "bg-warning",
+    textClass: "text-warning",
   },
   dropped: {
     label: "Dropped",
-    dotClass: "bg-red-500",
-    textClass: "text-red-600 dark:text-red-400",
+    dotClass: "bg-destructive",
+    textClass: "text-destructive",
   },
 };
 

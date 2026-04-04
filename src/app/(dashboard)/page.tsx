@@ -53,9 +53,9 @@ import { dashboardApi, type DashboardOverview } from "@/lib/api"
 type Channel = "Voice" | "WhatsApp" | "Chatbot"
 
 const channelConfig: Record<Channel, { color: string; icon: React.ElementType }> = {
-  Voice: { color: "bg-blue-500/15 text-blue-700 dark:text-blue-400", icon: Phone },
-  WhatsApp: { color: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400", icon: MessageCircle },
-  Chatbot: { color: "bg-purple-500/15 text-purple-700 dark:text-purple-400", icon: Globe },
+  Voice: { color: "bg-chart-2/15 text-chart-2", icon: Phone },
+  WhatsApp: { color: "bg-primary/15 text-primary", icon: MessageCircle },
+  Chatbot: { color: "bg-chart-4/15 text-chart-4", icon: Globe },
 }
 
 function ChannelBadge({ channel }: { channel: Channel }) {
@@ -95,7 +95,7 @@ function ConversationTooltip({
 }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="rounded-lg border bg-card px-3 py-2 text-sm shadow-md">
+    <div className="rounded-xl border border-border/60 bg-card px-3 py-2 text-sm shadow-none ring-1 ring-white/[0.04]">
       <p className="mb-1 font-medium text-card-foreground">{label}</p>
       {payload.map((entry) => (
         <div key={entry.name} className="flex items-center gap-2 text-muted-foreground">
@@ -125,7 +125,7 @@ function FunnelTooltip({
   if (!active || !payload?.length) return null
   const data = payload[0].payload
   return (
-    <div className="rounded-lg border bg-card px-3 py-2 text-sm shadow-md">
+    <div className="rounded-xl border border-border/60 bg-card px-3 py-2 text-sm shadow-none ring-1 ring-white/[0.04]">
       <p className="font-medium text-card-foreground">{data.stage}</p>
       <p className="text-muted-foreground">
         {data.count.toLocaleString()} conversations ({data.percent}%)
@@ -286,7 +286,7 @@ export default function DashboardPage() {
       {/* ---------------------------------------------------------------- */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
             Organisation-wide overview for today, {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
           </p>
@@ -309,7 +309,7 @@ export default function DashboardPage() {
         {kpiCards.map((kpi) => {
           const Icon = kpi.icon
           return (
-            <Card key={kpi.title}>
+            <Card key={kpi.title} className="border-border/60 ring-1 ring-white/[0.04]">
               <CardHeader className="flex flex-row items-center justify-between pb-0">
                 <CardDescription className="text-sm font-medium">
                   {kpi.title}
@@ -317,14 +317,14 @@ export default function DashboardPage() {
                 <Icon className="size-4 text-muted-foreground" />
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="text-2xl font-bold">{kpi.value}</div>
+                <div className="text-3xl font-light tracking-tight">{kpi.value}</div>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   {kpi.trend && (
                     <span
                       className={`inline-flex items-center gap-0.5 font-medium ${
                         kpi.trend.direction === "up"
-                          ? "text-emerald-600 dark:text-emerald-400"
-                          : "text-red-600 dark:text-red-400"
+                          ? "text-primary"
+                          : "text-destructive"
                       }`}
                     >
                       {kpi.trend.direction === "up" ? (
@@ -348,7 +348,7 @@ export default function DashboardPage() {
       {/* ---------------------------------------------------------------- */}
       <div className="grid gap-6 lg:grid-cols-7">
         {/* Conversations over time */}
-        <Card className="lg:col-span-4">
+        <Card className="lg:col-span-4 border-border/60 ring-1 ring-white/[0.04]">
           <CardHeader>
             <CardTitle>Conversations Over Time</CardTitle>
             <CardDescription>
@@ -356,7 +356,7 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-[300px] min-h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart
                   data={conversationData}
@@ -364,16 +364,16 @@ export default function DashboardPage() {
                 >
                   <defs>
                     <linearGradient id="gradVoice" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.55 0.2 260)" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="oklch(0.55 0.2 260)" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor="oklch(0.7 0.15 200)" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="oklch(0.7 0.15 200)" stopOpacity={0.02} />
                     </linearGradient>
                     <linearGradient id="gradWhatsApp" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.55 0.17 155)" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="oklch(0.55 0.17 155)" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor="oklch(0.87 0.2 165)" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="oklch(0.87 0.2 165)" stopOpacity={0.02} />
                     </linearGradient>
                     <linearGradient id="gradChatbot" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="oklch(0.65 0.15 300)" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="oklch(0.65 0.15 300)" stopOpacity={0.02} />
+                      <stop offset="0%" stopColor="oklch(0.7 0.15 300)" stopOpacity={0.3} />
+                      <stop offset="100%" stopColor="oklch(0.7 0.15 300)" stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -401,7 +401,7 @@ export default function DashboardPage() {
                     dataKey="voice"
                     name="Voice"
                     stackId="1"
-                    stroke="oklch(0.55 0.2 260)"
+                    stroke="oklch(0.7 0.15 200)"
                     fill="url(#gradVoice)"
                     strokeWidth={2}
                   />
@@ -410,7 +410,7 @@ export default function DashboardPage() {
                     dataKey="whatsapp"
                     name="WhatsApp"
                     stackId="1"
-                    stroke="oklch(0.55 0.17 155)"
+                    stroke="oklch(0.87 0.2 165)"
                     fill="url(#gradWhatsApp)"
                     strokeWidth={2}
                   />
@@ -419,7 +419,7 @@ export default function DashboardPage() {
                     dataKey="chatbot"
                     name="Chatbot"
                     stackId="1"
-                    stroke="oklch(0.65 0.15 300)"
+                    stroke="oklch(0.7 0.15 300)"
                     fill="url(#gradChatbot)"
                     strokeWidth={2}
                   />
@@ -430,7 +430,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Funnel chart */}
-        <Card className="lg:col-span-3">
+        <Card className="lg:col-span-3 border-border/60 ring-1 ring-white/[0.04]">
           <CardHeader>
             <CardTitle>Conversation Funnel</CardTitle>
             <CardDescription>
@@ -438,7 +438,7 @@ export default function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px]">
+            <div className="h-[300px] min-h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={funnelData}
@@ -499,7 +499,7 @@ export default function DashboardPage() {
       {/* ---------------------------------------------------------------- */}
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Recent Conversations */}
-        <Card className="lg:col-span-3">
+        <Card className="lg:col-span-3 border-border/60 ring-1 ring-white/[0.04]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="size-4" />
@@ -557,7 +557,7 @@ export default function DashboardPage() {
         </Card>
 
         {/* Top Agents */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 border-border/60 ring-1 ring-white/[0.04]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Bot className="size-4" />

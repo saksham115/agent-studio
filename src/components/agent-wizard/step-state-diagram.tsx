@@ -42,17 +42,17 @@ interface StateNodeData {
 type StateNode = Node<StateNodeData>;
 
 const HEADER_COLORS: Record<string, string> = {
-  start: "bg-emerald-600 dark:bg-emerald-700",
-  normal: "bg-blue-600 dark:bg-blue-700",
-  terminal: "bg-red-600 dark:bg-red-700",
-  branch: "bg-amber-600 dark:bg-amber-700",
+  start: "bg-primary dark:bg-primary/90",
+  normal: "bg-chart-2 dark:bg-chart-2/90",
+  terminal: "bg-destructive dark:bg-destructive/90",
+  branch: "bg-chart-3 dark:bg-chart-3/90",
 };
 
 const BORDER_COLORS: Record<string, string> = {
-  start: "border-emerald-600/30 dark:border-emerald-500/30",
-  normal: "border-blue-600/30 dark:border-blue-500/30",
-  terminal: "border-red-600/30 dark:border-red-500/30",
-  branch: "border-amber-600/30 dark:border-amber-500/30",
+  start: "border-primary/30",
+  normal: "border-chart-2/30",
+  terminal: "border-destructive/30",
+  branch: "border-chart-3/30",
 };
 
 function CustomNode({ data, selected }: NodeProps<StateNode>) {
@@ -86,12 +86,12 @@ function CustomNode({ data, selected }: NodeProps<StateNode>) {
           <span
             className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium capitalize ${
               data.nodeType === "start"
-                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                ? "bg-primary/10 text-primary"
                 : data.nodeType === "terminal"
-                ? "bg-red-500/10 text-red-600 dark:text-red-400"
+                ? "bg-destructive/10 text-destructive"
                 : data.nodeType === "branch"
-                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                ? "bg-chart-3/10 text-chart-3"
+                : "bg-chart-2/10 text-chart-2"
             }`}
           >
             {data.nodeType}
@@ -477,16 +477,16 @@ export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
         <div className="flex-1" />
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
-            <span className="size-2.5 rounded-full bg-emerald-600" /> Start
+            <span className="size-2.5 rounded-full bg-primary" /> Start
           </span>
           <span className="flex items-center gap-1">
-            <span className="size-2.5 rounded-full bg-blue-600" /> Normal
+            <span className="size-2.5 rounded-full bg-chart-2" /> Normal
           </span>
           <span className="flex items-center gap-1">
-            <span className="size-2.5 rounded-full bg-amber-600" /> Branch
+            <span className="size-2.5 rounded-full bg-chart-3" /> Branch
           </span>
           <span className="flex items-center gap-1">
-            <span className="size-2.5 rounded-full bg-red-600" /> Terminal
+            <span className="size-2.5 rounded-full bg-destructive" /> Terminal
           </span>
         </div>
       </div>
@@ -597,12 +597,12 @@ export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
                       <span
                         className={`size-2 rounded-full ${
                           t === "start"
-                            ? "bg-emerald-600"
+                            ? "bg-primary"
                             : t === "terminal"
-                            ? "bg-red-600"
+                            ? "bg-destructive"
                             : t === "branch"
-                            ? "bg-amber-600"
-                            : "bg-blue-600"
+                            ? "bg-chart-3"
+                            : "bg-chart-2"
                         }`}
                       />
                       {t}

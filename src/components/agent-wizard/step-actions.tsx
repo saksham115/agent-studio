@@ -56,17 +56,17 @@ const TYPE_CONFIG: Record<
 > = {
   db_update: {
     label: "DB Update",
-    color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+    color: "bg-chart-2/10 text-chart-2 border-chart-2/20",
     icon: <DatabaseIcon className="size-4" />,
   },
   link_generation: {
     label: "Link Gen",
-    color: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+    color: "bg-chart-4/10 text-chart-4 border-chart-4/20",
     icon: <LinkIcon className="size-4" />,
   },
   doc_fetch: {
     label: "Doc Fetch",
-    color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    color: "bg-primary/10 text-primary border-primary/20",
     icon: <FileOutputIcon className="size-4" />,
   },
   api_call: {

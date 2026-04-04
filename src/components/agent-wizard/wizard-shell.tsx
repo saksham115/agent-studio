@@ -447,7 +447,7 @@ export function WizardShell() {
                       isActive
                         ? "bg-primary text-primary-foreground"
                         : isComplete
-                        ? "bg-emerald-600 text-white dark:bg-emerald-700"
+                        ? "bg-primary/80 text-primary-foreground"
                         : "bg-muted text-muted-foreground group-hover:bg-muted-foreground/10"
                     }`}
                   >
@@ -470,7 +470,7 @@ export function WizardShell() {
                     </div>
                   </div>
                   {isComplete && !isActive && (
-                    <CheckIcon className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                    <CheckIcon className="size-3.5 shrink-0 text-primary" />
                   )}
                 </button>
               );
@@ -516,7 +516,7 @@ export function WizardShell() {
                     isActive
                       ? "bg-primary text-primary-foreground"
                       : isComplete
-                      ? "bg-emerald-600/10 text-emerald-600 dark:text-emerald-400"
+                      ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:bg-muted"
                   }`}
                 >
@@ -556,7 +556,7 @@ export function WizardShell() {
                     currentStep === step.id
                       ? "bg-primary"
                       : isStepComplete(step.id, formData)
-                      ? "bg-emerald-600 dark:bg-emerald-500"
+                      ? "bg-primary/80"
                       : "bg-muted-foreground/30"
                   }`}
                   aria-label={`Go to step ${step.id}`}

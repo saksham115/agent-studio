@@ -303,7 +303,7 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
               <div
                 className={`flex size-10 items-center justify-center rounded-lg ${
                   data.whatsapp.enabled
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    ? "bg-primary/10 text-primary"
                     : "bg-muted text-muted-foreground"
                 }`}
               >

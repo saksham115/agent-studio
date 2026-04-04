@@ -47,19 +47,19 @@ const channelConfig: Record<
     icon: Phone,
     label: "Voice",
     className:
-      "bg-blue-500/15 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400",
+      "bg-chart-2/15 text-chart-2",
   },
   whatsapp: {
     icon: MessageSquare,
     label: "WhatsApp",
     className:
-      "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400",
+      "bg-primary/15 text-primary",
   },
   chatbot: {
     icon: Globe,
     label: "Chatbot",
     className:
-      "bg-purple-500/15 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400",
+      "bg-chart-4/15 text-chart-4",
   },
 };
 
@@ -69,15 +69,15 @@ const severityConfig: Record<
 > = {
   low: {
     className:
-      "bg-blue-500/15 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400",
+      "bg-chart-2/15 text-chart-2",
   },
   medium: {
     className:
-      "bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400",
+      "bg-warning/15 text-warning",
   },
   high: {
     className:
-      "bg-red-500/15 text-red-600 dark:bg-red-500/20 dark:text-red-400",
+      "bg-destructive/15 text-destructive",
   },
 };
 
@@ -222,14 +222,14 @@ export default function ConversationDetailPage() {
                 <span
                   className={`h-2 w-2 rounded-full ${
                     conversationData.status === "active"
-                      ? "bg-emerald-500 animate-pulse"
-                      : "bg-zinc-400"
+                      ? "bg-primary animate-pulse"
+                      : "bg-muted-foreground"
                   }`}
                 />
                 <span
                   className={`text-sm font-medium ${
                     conversationData.status === "active"
-                      ? "text-emerald-600 dark:text-emerald-400"
+                      ? "text-primary"
                       : "text-muted-foreground"
                   }`}
                 >

@@ -49,17 +49,17 @@ const statusConfig: Record<
   active: {
     label: "Active",
     className:
-      "bg-emerald-500/15 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400",
+      "bg-primary/15 text-primary",
   },
   draft: {
     label: "Draft",
     className:
-      "bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400",
+      "bg-muted text-muted-foreground",
   },
   paused: {
     label: "Paused",
     className:
-      "bg-zinc-500/15 text-zinc-600 dark:bg-zinc-500/20 dark:text-zinc-400",
+      "bg-warning/15 text-warning dark:text-warning",
   },
 };
 
@@ -72,7 +72,7 @@ function formatNumber(n: number): string {
 
 function AgentCardSkeleton() {
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col border-border/60 ring-1 ring-white/[0.04]">
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1 space-y-2">
@@ -158,18 +158,18 @@ export default function AgentsPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
             <Bot className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
             <p className="text-sm text-muted-foreground">
               Manage your AI-powered insurance sales agents
             </p>
           </div>
         </div>
         <Link href="/agents/new">
-          <Button>
+          <Button className="rounded-full">
             <Plus className="h-4 w-4 mr-1.5" />
             Create Agent
           </Button>
@@ -184,7 +184,7 @@ export default function AgentsPage() {
             placeholder="Search agents, personas, customers..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8"
+            className="pl-8 rounded-xl"
           />
         </div>
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v ?? "all")}>
@@ -239,7 +239,7 @@ export default function AgentsPage() {
           {filteredAgents.map((agent) => {
             const status = statusConfig[agent.status as AgentStatus] ?? statusConfig.draft;
             return (
-              <Card key={agent.id} className="flex flex-col">
+              <Card key={agent.id} className="flex flex-col border-border/60 ring-1 ring-white/[0.04] transition-all hover:brightness-105 dark:hover:brightness-110">
                 <CardHeader>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
@@ -271,7 +271,7 @@ export default function AgentsPage() {
                         <Badge
                           key={channel}
                           variant="outline"
-                          className="gap-1 font-normal"
+                          className="gap-1 font-normal rounded-full"
                         >
                           <Icon className="h-3 w-3" />
                           {config.label}
@@ -305,7 +305,7 @@ export default function AgentsPage() {
 
                 <CardFooter className="gap-2">
                   <Link href={`/agents/${agent.id}`} className="flex-1">
-                    <Button variant="outline" className="w-full" size="sm">
+                    <Button variant="outline" className="w-full rounded-full" size="sm">
                       <Settings className="h-3.5 w-3.5 mr-1.5" />
                       Configure
                     </Button>
@@ -314,7 +314,7 @@ export default function AgentsPage() {
                     href={`/agents/${agent.id}?tab=conversations`}
                     className="flex-1"
                   >
-                    <Button variant="outline" className="w-full" size="sm">
+                    <Button variant="outline" className="w-full rounded-full" size="sm">
                       <Eye className="h-3.5 w-3.5 mr-1.5" />
                       View Conversations
                     </Button>

@@ -55,32 +55,32 @@ const CATEGORY_CONFIG: Record<
 > = {
   compliance: {
     label: "Compliance",
-    color: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+    color: "bg-chart-2/10 text-chart-2 border-chart-2/20",
     icon: <ShieldCheckIcon className="size-4" />,
   },
   pii: {
     label: "PII",
-    color: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+    color: "bg-destructive/10 text-destructive border-destructive/20",
     icon: <ShieldAlertIcon className="size-4" />,
   },
   topic_boundary: {
     label: "Topic Boundary",
-    color: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
+    color: "bg-chart-3/10 text-chart-3 border-chart-3/20",
     icon: <ShieldIcon className="size-4" />,
   },
   safety: {
     label: "Safety",
-    color: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    color: "bg-primary/10 text-primary border-primary/20",
     icon: <ShieldCheckIcon className="size-4" />,
   },
   anti_misselling: {
     label: "Anti-Misselling",
-    color: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+    color: "bg-warning/10 text-warning border-warning/20",
     icon: <ShieldAlertIcon className="size-4" />,
   },
   custom: {
     label: "Custom",
-    color: "bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20",
+    color: "bg-muted text-muted-foreground border-border",
     icon: <ShieldIcon className="size-4" />,
   },
 };
@@ -91,15 +91,15 @@ const SEVERITY_CONFIG: Record<
 > = {
   block: {
     label: "Block",
-    color: "bg-red-500/10 text-red-600 dark:text-red-400",
+    color: "bg-destructive/10 text-destructive",
   },
   warn: {
     label: "Warn",
-    color: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+    color: "bg-warning/10 text-warning",
   },
   log: {
     label: "Log",
-    color: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    color: "bg-chart-2/10 text-chart-2",
   },
 };
 
