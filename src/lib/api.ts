@@ -49,31 +49,18 @@ export interface AgentCreate {
   channels?: ("voice" | "whatsapp" | "chatbot")[];
 }
 
+// Matches backend DashboardStatsResponse (snake_case from Python)
 export interface DashboardOverview {
-  totalAgents: number;
-  activeAgents: number;
-  draftAgents: number;
-  totalConversations: number;
-  completionRate: number | null;
-  completionRateTrend: { value: string; direction: "up" | "down" } | null;
-  avgResponseTime: string | null;
-  avgResponseTimeTrend: { value: string; direction: "up" | "down" } | null;
-  conversationData: { date: string; voice: number; whatsapp: number; chatbot: number }[];
-  funnelData: { stage: string; count: number; percent: number; fill: string }[];
-  recentConversations: {
-    id: string;
-    contact: string;
-    agent: string;
-    channel: "Voice" | "WhatsApp" | "Chatbot";
-    stateReached: string;
-    timeAgo: string;
-  }[];
-  topAgents: {
-    name: string;
-    conversations: number;
-    completionRate: number;
-    channels: ("Voice" | "WhatsApp" | "Chatbot")[];
-  }[];
+  total_agents: number;
+  active_agents: number;
+  total_conversations: number;
+  active_conversations: number;
+  total_messages: number;
+  avg_messages_per_conversation: number;
+  avg_sentiment_score: number | null;
+  conversations_by_channel: Record<string, number>;
+  conversations_by_status: Record<string, number>;
+  top_agents: { agent_id: string; name: string; conversation_count: number }[];
 }
 
 export interface ConversationListItem {

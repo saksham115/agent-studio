@@ -32,8 +32,8 @@ async def create_agent(
     """Create a new AI sales agent in draft status."""
     service = AgentService(db)
     agent = await service.create_agent(
-        org_id=uuid.UUID(current_user.org_id),
-        created_by=uuid.UUID(current_user.id),
+        org_id=uuid.UUID(str(current_user.org_id)),
+        created_by=uuid.UUID(str(current_user.id)),
         name=agent_in.name,
         description=agent_in.description,
         system_prompt=agent_in.system_prompt,
@@ -74,7 +74,7 @@ async def list_agents(
             )
 
     agents, total = await service.list_agents(
-        org_id=uuid.UUID(current_user.org_id),
+        org_id=uuid.UUID(str(current_user.org_id)),
         page=page,
         page_size=page_size,
         status_filter=parsed_status,
@@ -101,7 +101,7 @@ async def get_agent(
 ) -> AgentResponse:
     """Retrieve a specific agent by ID."""
     service = AgentService(db)
-    agent = await service.get_agent_by_id(agent_id, uuid.UUID(current_user.org_id))
+    agent = await service.get_agent_by_id(agent_id, uuid.UUID(str(current_user.org_id)))
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return AgentResponse.model_validate(agent)
@@ -119,7 +119,7 @@ async def update_agent(
 ) -> AgentResponse:
     """Update an existing agent's configuration."""
     service = AgentService(db)
-    agent = await service.get_agent_by_id(agent_id, uuid.UUID(current_user.org_id))
+    agent = await service.get_agent_by_id(agent_id, uuid.UUID(str(current_user.org_id)))
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
@@ -142,7 +142,7 @@ async def delete_agent(
 ) -> None:
     """Soft-delete an agent by archiving it."""
     service = AgentService(db)
-    agent = await service.get_agent_by_id(agent_id, uuid.UUID(current_user.org_id))
+    agent = await service.get_agent_by_id(agent_id, uuid.UUID(str(current_user.org_id)))
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     await service.delete_agent(agent)
@@ -159,7 +159,7 @@ async def publish_agent(
 ) -> AgentPublishResponse:
     """Publish an agent, making it available for deployment."""
     service = AgentService(db)
-    agent = await service.get_agent_by_id(agent_id, uuid.UUID(current_user.org_id))
+    agent = await service.get_agent_by_id(agent_id, uuid.UUID(str(current_user.org_id)))
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 

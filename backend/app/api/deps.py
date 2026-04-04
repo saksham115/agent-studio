@@ -74,7 +74,7 @@ async def verify_agent_ownership(
 ) -> Agent:
     """Verify an agent belongs to the current user's organization and return it."""
     service = AgentService(db)
-    agent = await service.get_agent_by_id(agent_id, uuid.UUID(current_user.org_id))
+    agent = await service.get_agent_by_id(agent_id, uuid.UUID(str(current_user.org_id)))
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent

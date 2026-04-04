@@ -222,42 +222,62 @@ export default function DashboardPage() {
 
   if (loading) return <DashboardSkeleton />
 
-  // Build KPI cards from API data or fallback to empty
+  // Compute derived stats from API response
+  const totalAgents = data?.total_agents ?? 0
+  const activeAgents = data?.active_agents ?? 0
+  const totalConversations = data?.total_conversations ?? 0
+  const activeConversations = data?.active_conversations ?? 0
+  const completedConversations = data?.conversations_by_status?.completed ?? 0
+  const completionRate = totalConversations > 0
+    ? Math.round((completedConversations / totalConversations) * 100)
+    : null
+  const avgMsgs = data?.avg_messages_per_conversation ?? 0
+
   const kpiCards = [
     {
       title: "Total Agents",
-      value: data ? String(data.totalAgents) : "0",
-      subtitle: data ? `${data.activeAgents} active, ${data.draftAgents} draft` : "0 active, 0 draft",
+      value: String(totalAgents),
+      subtitle: `${activeAgents} active, ${totalAgents - activeAgents} draft`,
       icon: Bot,
       trend: null as null | { value: string; direction: "up" | "down" },
     },
     {
       title: "Total Conversations",
-      value: data ? String(data.totalConversations) : "0",
-      subtitle: "Today",
+      value: String(totalConversations),
+      subtitle: `${activeConversations} active`,
       icon: MessageCircle,
       trend: null as null | { value: string; direction: "up" | "down" },
     },
     {
       title: "Completion Rate",
-      value: data?.completionRate != null ? `${data.completionRate}%` : "--",
-      subtitle: "vs last week",
+      value: completionRate != null ? `${completionRate}%` : "--",
+      subtitle: `${completedConversations} completed`,
       icon: Activity,
-      trend: data?.completionRateTrend ?? null,
+      trend: null as null | { value: string; direction: "up" | "down" },
     },
     {
-      title: "Avg Response Time",
-      value: data?.avgResponseTime ?? "--",
-      subtitle: "vs last week",
+      title: "Avg Messages",
+      value: avgMsgs > 0 ? avgMsgs.toFixed(1) : "--",
+      subtitle: "per conversation",
       icon: Clock,
-      trend: data?.avgResponseTimeTrend ?? null,
+      trend: null as null | { value: string; direction: "up" | "down" },
     },
   ]
 
-  const conversationData = data?.conversationData ?? []
-  const funnelData = data?.funnelData ?? []
-  const recentConversations = data?.recentConversations ?? []
-  const topAgents = data?.topAgents ?? []
+  // Charts need data we don't have from the overview endpoint yet — show empty
+  const conversationData: { date: string; voice: number; whatsapp: number; chatbot: number }[] = []
+  const funnelData: { stage: string; count: number; percent: number; fill: string }[] = []
+
+  // Recent conversations — not available from overview endpoint
+  const recentConversations: { id: string; contact: string; agent: string; channel: "Voice" | "WhatsApp" | "Chatbot"; stateReached: string; timeAgo: string }[] = []
+
+  // Map top agents from API response
+  const topAgents = (data?.top_agents ?? []).map((a) => ({
+    name: a.name,
+    conversations: a.conversation_count,
+    completionRate: 0,
+    channels: [] as Channel[],
+  }))
 
   return (
     <div className="p-6 space-y-6">
