@@ -89,250 +89,14 @@ interface ConversationRow {
   currentState: string;
 }
 
-const agentsMap: Record<string, AgentDetail> = {
-  "agt-001": {
-    id: "agt-001",
-    name: "Health Insurance Advisor",
-    persona: "Priya Sharma",
-    customer: "HDFC ERGO",
-    status: "active",
-    channels: ["voice", "whatsapp", "chatbot"],
-    conversations: 12847,
-    completionRate: 78.4,
-    avgConversationLength: "4m 32s",
-    guardrailTriggers: 156,
-    createdAt: "2026-01-15",
-    updatedAt: "2026-03-30",
-    languages: ["English", "Hindi", "Hinglish"],
-    tone: "Consultative",
-    systemPromptPreview:
-      "You are Priya Sharma, a knowledgeable health insurance advisor at HDFC ERGO. Help customers understand health insurance plans, compare coverage options, and guide them through the purchase process. Always mention IRDAI regulations when discussing policy terms.",
-    kbDocsCount: 24,
-    actionsCount: 8,
-    statesCount: 7,
-    guardrailsCount: 5,
-  },
-  "agt-002": {
-    id: "agt-002",
-    name: "Motor Renewal Bot",
-    persona: "Rajesh Kumar",
-    customer: "Bajaj Allianz",
-    status: "active",
-    channels: ["whatsapp", "chatbot"],
-    conversations: 8432,
-    completionRate: 85.2,
-    avgConversationLength: "2m 18s",
-    guardrailTriggers: 43,
-    createdAt: "2026-02-03",
-    updatedAt: "2026-03-25",
-    languages: ["English", "Hindi"],
-    tone: "Conversational",
-    systemPromptPreview:
-      "You are Rajesh Kumar, a motor insurance renewal specialist at Bajaj Allianz. Proactively reach out to customers whose policies are nearing expiry, explain no-claim bonus benefits, and facilitate quick renewals. Highlight IDV options and add-on covers.",
-    kbDocsCount: 18,
-    actionsCount: 6,
-    statesCount: 5,
-    guardrailsCount: 4,
-  },
-  "agt-003": {
-    id: "agt-003",
-    name: "Term Life Outbound",
-    persona: "Ananya Reddy",
-    customer: "Max Life Insurance",
-    status: "paused",
-    channels: ["voice"],
-    conversations: 5621,
-    completionRate: 42.7,
-    avgConversationLength: "6m 45s",
-    guardrailTriggers: 289,
-    createdAt: "2025-11-20",
-    updatedAt: "2026-03-10",
-    languages: ["English", "Hindi", "Telugu"],
-    tone: "Formal",
-    systemPromptPreview:
-      "You are Ananya Reddy, a term life insurance specialist at Max Life Insurance. Conduct outbound calls to qualified leads, assess their life insurance needs based on income, dependents, and existing coverage. Present Max Life term plans with clear premium breakdowns.",
-    kbDocsCount: 31,
-    actionsCount: 10,
-    statesCount: 9,
-    guardrailsCount: 7,
-  },
-  "agt-004": {
-    id: "agt-004",
-    name: "ULIP Cross-Sell Agent",
-    persona: "Vikram Mehta",
-    customer: "ICICI Prudential",
-    status: "draft",
-    channels: ["voice", "whatsapp"],
-    conversations: 0,
-    completionRate: 0,
-    avgConversationLength: "--",
-    guardrailTriggers: 0,
-    createdAt: "2026-03-28",
-    updatedAt: "2026-04-01",
-    languages: ["English", "Hindi", "Gujarati"],
-    tone: "Consultative",
-    systemPromptPreview:
-      "You are Vikram Mehta, an investment-cum-insurance advisor at ICICI Prudential. Engage existing policy holders to cross-sell ULIP products. Explain NAV-based returns, fund options, lock-in periods, and tax benefits under Section 80C and 10(10D).",
-    kbDocsCount: 15,
-    actionsCount: 5,
-    statesCount: 6,
-    guardrailsCount: 3,
-  },
-  "agt-005": {
-    id: "agt-005",
-    name: "Claim Status Helper",
-    persona: "Neha Gupta",
-    customer: "Star Health",
-    status: "active",
-    channels: ["whatsapp", "chatbot"],
-    conversations: 21340,
-    completionRate: 91.3,
-    avgConversationLength: "1m 54s",
-    guardrailTriggers: 67,
-    createdAt: "2025-09-10",
-    updatedAt: "2026-04-02",
-    languages: ["English", "Hindi", "Tamil"],
-    tone: "Conversational",
-    systemPromptPreview:
-      "You are Neha Gupta, a claims support agent at Star Health Insurance. Help policyholders check claim status, understand required documents for cashless and reimbursement claims, locate network hospitals, and escalate unresolved issues to the claims team.",
-    kbDocsCount: 42,
-    actionsCount: 12,
-    statesCount: 6,
-    guardrailsCount: 4,
-  },
-  "agt-006": {
-    id: "agt-006",
-    name: "Policy Renewal WhatsApp",
-    persona: "Arjun Patel",
-    customer: "Tata AIG",
-    status: "active",
-    channels: ["whatsapp"],
-    conversations: 15290,
-    completionRate: 88.1,
-    avgConversationLength: "3m 12s",
-    guardrailTriggers: 92,
-    createdAt: "2025-12-05",
-    updatedAt: "2026-03-28",
-    languages: ["English", "Hindi", "Marathi"],
-    tone: "Conversational",
-    systemPromptPreview:
-      "You are Arjun Patel, a renewal specialist at Tata AIG. Send timely renewal reminders via WhatsApp, share premium quotes, explain coverage changes, and generate secure payment links. Focus on retention by highlighting loyalty benefits and NCB discounts.",
-    kbDocsCount: 20,
-    actionsCount: 7,
-    statesCount: 5,
-    guardrailsCount: 4,
-  },
-};
+// TODO: fetch from API
+const agentsMap: Record<string, AgentDetail> = {};
 
-const apiKeysData: ApiKey[] = [
-  {
-    id: "key-001",
-    name: "Production - Web Widget",
-    prefix: "sk-prod-a8f3...x2k9",
-    status: "active",
-    createdAt: "2026-02-10",
-    lastUsed: "2026-04-03",
-  },
-  {
-    id: "key-002",
-    name: "Staging - Internal Testing",
-    prefix: "sk-stg-d4e1...m7n2",
-    status: "active",
-    createdAt: "2026-01-22",
-    lastUsed: "2026-04-01",
-  },
-  {
-    id: "key-003",
-    name: "Legacy Integration",
-    prefix: "sk-leg-b2c5...p9q4",
-    status: "revoked",
-    createdAt: "2025-11-05",
-    lastUsed: "2026-01-15",
-  },
-  {
-    id: "key-004",
-    name: "Partner API - Razorpay Webhook",
-    prefix: "sk-prt-f6g8...t3u1",
-    status: "active",
-    createdAt: "2026-03-01",
-    lastUsed: "2026-04-03",
-  },
-];
+// TODO: fetch from API
+const apiKeysData: ApiKey[] = [];
 
-const conversationsData: ConversationRow[] = [
-  {
-    id: "conv-10234",
-    phoneOrChannel: "+91 98765 43210",
-    channel: "voice",
-    status: "completed",
-    duration: "5m 12s",
-    startedAt: "2026-04-03 14:32",
-    currentState: "Closure",
-  },
-  {
-    id: "conv-10233",
-    phoneOrChannel: "+91 87654 32109",
-    channel: "whatsapp",
-    status: "completed",
-    duration: "3m 45s",
-    startedAt: "2026-04-03 13:18",
-    currentState: "Closure",
-  },
-  {
-    id: "conv-10232",
-    phoneOrChannel: "Web Session #8821",
-    channel: "chatbot",
-    status: "dropped",
-    duration: "1m 20s",
-    startedAt: "2026-04-03 12:55",
-    currentState: "Product Pitch",
-  },
-  {
-    id: "conv-10231",
-    phoneOrChannel: "+91 76543 21098",
-    channel: "whatsapp",
-    status: "escalated",
-    duration: "7m 03s",
-    startedAt: "2026-04-03 11:40",
-    currentState: "Objection Handling",
-  },
-  {
-    id: "conv-10230",
-    phoneOrChannel: "+91 65432 10987",
-    channel: "voice",
-    status: "completed",
-    duration: "4m 28s",
-    startedAt: "2026-04-03 10:15",
-    currentState: "Closure",
-  },
-  {
-    id: "conv-10229",
-    phoneOrChannel: "+91 54321 09876",
-    channel: "whatsapp",
-    status: "in-progress",
-    duration: "2m 10s",
-    startedAt: "2026-04-03 09:50",
-    currentState: "Need Discovery",
-  },
-  {
-    id: "conv-10228",
-    phoneOrChannel: "Web Session #8820",
-    channel: "chatbot",
-    status: "completed",
-    duration: "3m 55s",
-    startedAt: "2026-04-02 17:22",
-    currentState: "Closure",
-  },
-  {
-    id: "conv-10227",
-    phoneOrChannel: "+91 43210 98765",
-    channel: "voice",
-    status: "dropped",
-    duration: "0m 45s",
-    startedAt: "2026-04-02 16:08",
-    currentState: "Greeting",
-  },
-];
+// TODO: fetch from API
+const conversationsData: ConversationRow[] = [];
 
 const statusConfig: Record<AgentStatus, { label: string; className: string }> =
   {
@@ -634,6 +398,13 @@ function ConversationsTab() {
           View All
         </Button>
       </div>
+      {conversationsData.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <MessageCircle className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-medium">No conversations yet</h3>
+          <p className="text-sm text-muted-foreground mt-1">Conversations will appear here once this agent starts interacting</p>
+        </div>
+      ) : (
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -694,6 +465,7 @@ function ConversationsTab() {
           </Table>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
@@ -721,6 +493,13 @@ function ApiKeysTab() {
           Generate Key
         </Button>
       </div>
+      {apiKeysData.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Key className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-medium">No API keys yet</h3>
+          <p className="text-sm text-muted-foreground mt-1">Generate an API key for programmatic access to this agent</p>
+        </div>
+      ) : (
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -781,6 +560,7 @@ function ApiKeysTab() {
           </Table>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

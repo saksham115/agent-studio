@@ -133,126 +133,15 @@ const INITIAL_FORM_DATA: WizardFormData = {
     personaName: "",
     customer: "",
     systemPrompt: "",
-    languages: ["English", "Hindi"],
-    tone: "conversational",
+    languages: [],
+    tone: "",
   },
   knowledgeBase: {
-    documents: [
-      {
-        id: "doc-1",
-        name: "HDFC_Ergo_Health_Brochure_2026.pdf",
-        type: "PDF",
-        category: "Product Brochure",
-        status: "ready",
-        size: "4.2 MB",
-      },
-      {
-        id: "doc-2",
-        name: "Health_Insurance_FAQ.docx",
-        type: "DOCX",
-        category: "FAQ",
-        status: "processing",
-        size: "1.8 MB",
-      },
-    ],
-    structuredSources: [
-      {
-        id: "src-1",
-        name: "Premium Calculator API",
-        type: "API",
-        description:
-          "REST API endpoint that returns premium quotes based on age, sum insured, and plan type. Connected to the customer's product catalog.",
-        status: "connected",
-      },
-    ],
+    documents: [], // TODO: populate from API
+    structuredSources: [], // TODO: populate from API
   },
   actions: {
-    actions: [
-      {
-        id: "action-1",
-        name: "Generate Payment Link",
-        description:
-          "Generate a Razorpay payment link for the selected insurance plan and send it to the customer via WhatsApp or SMS.",
-        type: "link_generation",
-        parameters: [
-          {
-            name: "plan_id",
-            type: "string",
-            required: true,
-            description: "Selected insurance plan identifier",
-          },
-          {
-            name: "premium_amount",
-            type: "number",
-            required: true,
-            description: "Premium amount in INR",
-          },
-          {
-            name: "customer_name",
-            type: "string",
-            required: true,
-            description: "Customer full name",
-          },
-          {
-            name: "customer_phone",
-            type: "string",
-            required: true,
-            description: "Customer mobile number",
-          },
-        ],
-        requireConfirmation: true,
-      },
-      {
-        id: "action-2",
-        name: "Update Lead Status",
-        description:
-          "Update the lead status in the CRM system to track the customer's progress through the sales funnel.",
-        type: "db_update",
-        parameters: [
-          {
-            name: "lead_id",
-            type: "string",
-            required: true,
-            description: "CRM lead identifier",
-          },
-          {
-            name: "status",
-            type: "enum",
-            required: true,
-            description: "New status: interested, quoted, converted, lost",
-          },
-          {
-            name: "notes",
-            type: "string",
-            required: false,
-            description: "Agent notes about the interaction",
-          },
-        ],
-        requireConfirmation: false,
-      },
-      {
-        id: "action-3",
-        name: "Send Policy Document",
-        description:
-          "Fetch the policy brochure or terms document from the document store and send it to the customer.",
-        type: "doc_fetch",
-        parameters: [
-          {
-            name: "document_type",
-            type: "enum",
-            required: true,
-            description: "Type: brochure, terms, claim_form, proposal",
-          },
-          {
-            name: "plan_id",
-            type: "string",
-            required: true,
-            description: "Insurance plan identifier",
-          },
-        ],
-        requireConfirmation: true,
-      },
-    ],
+    actions: [], // TODO: populate from API
   },
   stateDiagram: {
     nodes: [],
@@ -297,56 +186,7 @@ const INITIAL_FORM_DATA: WizardFormData = {
     },
   },
   guardrails: {
-    guardrails: [
-      {
-        id: "guard-1",
-        name: "IRDAI Compliance",
-        rule: "Always mention cooling-off period and free-look period when discussing policy purchase",
-        category: "compliance",
-        severity: "block",
-        enabled: true,
-      },
-      {
-        id: "guard-2",
-        name: "PII Protection",
-        rule: "Never repeat full Aadhaar or PAN number back to the customer",
-        category: "pii",
-        severity: "block",
-        enabled: true,
-      },
-      {
-        id: "guard-3",
-        name: "Topic Boundary",
-        rule: "Only discuss insurance products available in the knowledge base",
-        category: "topic_boundary",
-        severity: "warn",
-        enabled: true,
-      },
-      {
-        id: "guard-4",
-        name: "Anti-Misselling",
-        rule: "Never guarantee returns on ULIP or investment-linked products",
-        category: "safety",
-        severity: "block",
-        enabled: true,
-      },
-      {
-        id: "guard-5",
-        name: "Escalation Trigger",
-        rule: "Escalate to human agent when customer explicitly requests or shows frustration",
-        category: "safety",
-        severity: "warn",
-        enabled: true,
-      },
-      {
-        id: "guard-6",
-        name: "Consent Required",
-        rule: "Collect explicit consent before storing personal information",
-        category: "compliance",
-        severity: "block",
-        enabled: true,
-      },
-    ],
+    guardrails: [], // TODO: populate from API
   },
 };
 

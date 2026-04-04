@@ -46,76 +46,11 @@ interface Agent {
   createdAt: string;
 }
 
-const agents: Agent[] = [
-  {
-    id: "agt-001",
-    name: "Health Insurance Advisor",
-    persona: "Priya Sharma",
-    customer: "HDFC ERGO",
-    status: "active",
-    channels: ["voice", "whatsapp", "chatbot"],
-    conversations: 12847,
-    completionRate: 78.4,
-    createdAt: "2026-01-15",
-  },
-  {
-    id: "agt-002",
-    name: "Motor Renewal Bot",
-    persona: "Rajesh Kumar",
-    customer: "Bajaj Allianz",
-    status: "active",
-    channels: ["whatsapp", "chatbot"],
-    conversations: 8432,
-    completionRate: 85.2,
-    createdAt: "2026-02-03",
-  },
-  {
-    id: "agt-003",
-    name: "Term Life Outbound",
-    persona: "Ananya Reddy",
-    customer: "Max Life Insurance",
-    status: "paused",
-    channels: ["voice"],
-    conversations: 5621,
-    completionRate: 42.7,
-    createdAt: "2025-11-20",
-  },
-  {
-    id: "agt-004",
-    name: "ULIP Cross-Sell Agent",
-    persona: "Vikram Mehta",
-    customer: "ICICI Prudential",
-    status: "draft",
-    channels: ["voice", "whatsapp"],
-    conversations: 0,
-    completionRate: 0,
-    createdAt: "2026-03-28",
-  },
-  {
-    id: "agt-005",
-    name: "Claim Status Helper",
-    persona: "Neha Gupta",
-    customer: "Star Health",
-    status: "active",
-    channels: ["whatsapp", "chatbot"],
-    conversations: 21340,
-    completionRate: 91.3,
-    createdAt: "2025-09-10",
-  },
-  {
-    id: "agt-006",
-    name: "Policy Renewal WhatsApp",
-    persona: "Arjun Patel",
-    customer: "Tata AIG",
-    status: "active",
-    channels: ["whatsapp"],
-    conversations: 15290,
-    completionRate: 88.1,
-    createdAt: "2025-12-05",
-  },
-];
+// TODO: fetch from API
+const agents: Agent[] = [];
 
-const customers = Array.from(new Set(agents.map((a) => a.customer)));
+// TODO: fetch from API
+const customers: string[] = [];
 
 const channelConfig: Record<Channel, { icon: typeof Phone; label: string }> = {
   voice: { icon: Phone, label: "Voice" },
@@ -237,10 +172,10 @@ export default function AgentsPage() {
       {/* Agent Cards Grid */}
       {filteredAgents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Bot className="h-12 w-12 text-muted-foreground/40 mb-4" />
-          <h3 className="text-lg font-semibold">No agents found</h3>
+          <Bot className="h-12 w-12 text-muted-foreground/50 mb-4" />
+          <h3 className="text-lg font-medium">No agents yet</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Try adjusting your search or filter criteria.
+            Create your first AI agent to get started.
           </p>
         </div>
       ) : (

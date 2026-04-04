@@ -59,206 +59,32 @@ interface GuardrailTriggered {
   timestamp: string;
 }
 
-const conversationData = {
-  id: "conv-1001",
-  contact: "+91 98XXX XX234",
-  contactName: "Ramesh Subramaniam",
-  channel: "whatsapp" as Channel,
-  direction: "inbound",
-  status: "active",
-  startedAt: "04 Apr 2026, 2:28 PM",
-  duration: "8m 32s",
-  messageCount: 12,
-  agentName: "Priya Sharma",
-  agentId: "agt-001",
-};
+// TODO: fetch from API
+const conversationData: {
+  id: string;
+  contact: string;
+  contactName: string;
+  channel: Channel;
+  direction: string;
+  status: string;
+  startedAt: string;
+  duration: string;
+  messageCount: number;
+  agentName: string;
+  agentId: string;
+} | null = null;
 
-const messages: Message[] = [
-  {
-    id: "msg-1",
-    sender: "agent",
-    content:
-      "Namaste! I am Priya from HDFC ERGO. Thank you for reaching out. How can I help you with your insurance needs today?",
-    timestamp: "2:28 PM",
-  },
-  {
-    id: "msg-2",
-    sender: "user",
-    content:
-      "Hi, I want health insurance for my family. We are a family of 4 - me, my wife, and two kids.",
-    timestamp: "2:29 PM",
-  },
-  {
-    id: "msg-3",
-    sender: "agent",
-    content:
-      "That's wonderful that you're looking to protect your family's health! I'd love to help you find the right plan. Could you please share a few details?\n\n1. Your age and your wife's age?\n2. Ages of your children?\n3. Any pre-existing medical conditions in the family?\n4. Your preferred sum insured range?",
-    timestamp: "2:29 PM",
-  },
-  {
-    id: "msg-4",
-    sender: "user",
-    content:
-      "I am 35, wife is 32. Kids are 8 and 5 years old. No major conditions, but my wife has thyroid. Budget around 20-25k per year. We stay in Pune.",
-    timestamp: "2:31 PM",
-  },
-  {
-    id: "msg-5",
-    sender: "agent",
-    content:
-      "Thank you, Ramesh! Based on your family profile, I'd recommend these plans:\n\n1. *Optima Secure* - Rs 10L cover, Rs 18,450/yr\n   - Restore benefit, no room rent capping\n\n2. *Optima Super Secure* - Rs 15L cover, Rs 23,200/yr\n   - Includes maternity, OPD cover\n\n3. *My Health Suraksha* - Rs 10L cover, Rs 16,800/yr\n   - Zone-based pricing, fits Pune well\n\nThyroid is covered after a 2-year waiting period in all plans. Shall I generate a detailed quote for any of these?",
-    timestamp: "2:32 PM",
-  },
-  {
-    id: "msg-6",
-    sender: "user",
-    content:
-      "The Optima Super Secure with 15L sounds good. Can you tell me the exact premium and what all is covered?",
-    timestamp: "2:33 PM",
-  },
-  {
-    id: "msg-7",
-    sender: "system",
-    content: "State changed: Needs Discovery -> Quote Generation",
-    timestamp: "2:33 PM",
-  },
-  {
-    id: "msg-8",
-    sender: "system",
-    content: "Action triggered: Generate Quote Link (HDFC ERGO Quote API)",
-    timestamp: "2:33 PM",
-  },
-  {
-    id: "msg-9",
-    sender: "agent",
-    content:
-      "Great choice! Here's your personalized quote for *HDFC ERGO Optima Super Secure*:\n\n- Sum Insured: Rs 15,00,000\n- Family Floater: 4 members\n- Annual Premium: Rs 23,200 (incl. GST)\n- Cashless Hospitals in Pune: 142\n\nKey Benefits:\n- Restore benefit (100% sum insured restored)\n- No room rent capping\n- Day care procedures covered\n- Annual health check-up\n\nView full details: https://quote.hdfcergo.com/q/HE20260404R234\n\nWould you like to proceed with this plan?",
-    timestamp: "2:34 PM",
-  },
-  {
-    id: "msg-10",
-    sender: "user",
-    content:
-      "Looks good, let's proceed. What do I need to do?",
-    timestamp: "2:35 PM",
-  },
-  {
-    id: "msg-11",
-    sender: "system",
-    content: "State changed: Quote Generation -> Document Collection",
-    timestamp: "2:35 PM",
-  },
-  {
-    id: "msg-12",
-    sender: "agent",
-    content:
-      "Excellent decision, Ramesh! To proceed with your application, I'll need the following documents for all insured members:\n\n1. Aadhaar Card (front & back)\n2. PAN Card\n3. Recent passport-size photograph\n4. Medical reports for thyroid (wife's last prescription)\n\nYou can simply share photos of these documents here on WhatsApp. All data is encrypted and handled as per IRDAI guidelines.\n\nShall I start with your documents first?",
-    timestamp: "2:36 PM",
-  },
-];
+// TODO: fetch from API
+const messages: Message[] = [];
 
-const stateTimeline: StateTransition[] = [
-  {
-    state: "Greeting",
-    timestamp: "2:28 PM",
-    duration: "1m",
-  },
-  {
-    state: "Needs Discovery",
-    timestamp: "2:29 PM",
-    duration: "4m",
-  },
-  {
-    state: "Plan Recommendation",
-    timestamp: "2:32 PM",
-    duration: "1m",
-  },
-  {
-    state: "Quote Generation",
-    timestamp: "2:33 PM",
-    duration: "2m",
-  },
-  {
-    state: "Document Collection",
-    timestamp: "2:35 PM",
-    duration: "ongoing",
-  },
-];
+// TODO: fetch from API
+const stateTimeline: StateTransition[] = [];
 
-const actionsTriggered: ActionTriggered[] = [
-  {
-    id: "act-1",
-    name: "Customer Lookup (CRM)",
-    status: "success",
-    timestamp: "2:28 PM",
-    payload: {
-      customerId: "CRM-892341",
-      existingPolicies: "Motor (Active), Travel (Expired)",
-      loyaltyTier: "Silver",
-    },
-  },
-  {
-    id: "act-2",
-    name: "Generate Quote Link",
-    status: "success",
-    timestamp: "2:33 PM",
-    payload: {
-      quoteId: "HE20260404R234",
-      plan: "Optima Super Secure",
-      sumInsured: "15,00,000",
-      premium: "23,200",
-      quoteUrl: "https://quote.hdfcergo.com/q/HE20260404R234",
-    },
-  },
-  {
-    id: "act-3",
-    name: "Send WhatsApp Template",
-    status: "success",
-    timestamp: "2:34 PM",
-    payload: {
-      templateName: "quote_summary_v2",
-      recipientPhone: "+919812XX234",
-      messageId: "wamid.HBgN...",
-    },
-  },
-  {
-    id: "act-4",
-    name: "DND Registry Check",
-    status: "failed",
-    timestamp: "2:28 PM",
-    payload: {
-      phone: "+919812XX234",
-      error: "DND API timeout after 3s, proceeded with consent flag",
-    },
-  },
-];
+// TODO: fetch from API
+const actionsTriggered: ActionTriggered[] = [];
 
-const guardrailsTriggered: GuardrailTriggered[] = [
-  {
-    id: "gr-1",
-    name: "PII Detection",
-    severity: "medium",
-    details:
-      "User shared Aadhaar number in message. Auto-masked in logs per DPDP Act compliance.",
-    timestamp: "2:31 PM",
-  },
-  {
-    id: "gr-2",
-    name: "Premium Accuracy Check",
-    severity: "low",
-    details:
-      "Agent-quoted premium Rs 23,200 verified against rate engine. Match confirmed.",
-    timestamp: "2:34 PM",
-  },
-  {
-    id: "gr-3",
-    name: "Competitor Mention Block",
-    severity: "low",
-    details:
-      "User mentioned 'Star Health'. Agent correctly redirected without disparagement.",
-    timestamp: "2:33 PM",
-  },
-];
+// TODO: fetch from API
+const guardrailsTriggered: GuardrailTriggered[] = [];
 
 const channelConfig: Record<
   Channel,
@@ -307,9 +133,6 @@ export default function ConversationDetailPage() {
     new Set()
   );
 
-  const channel = channelConfig[conversationData.channel];
-  const ChannelIcon = channel.icon;
-
   const toggleAction = (actionId: string) => {
     setExpandedActions((prev) => {
       const next = new Set(prev);
@@ -321,6 +144,25 @@ export default function ConversationDetailPage() {
       return next;
     });
   };
+
+  if (!conversationData) {
+    return (
+      <div className="flex h-[calc(100vh-3.5rem)] flex-col items-center justify-center">
+        <MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+        <h3 className="text-lg font-medium">Conversation not found</h3>
+        <p className="text-sm text-muted-foreground mt-1 mb-4">This conversation does not exist or has not been loaded yet.</p>
+        <Link href="/conversations">
+          <Button variant="outline">
+            <ArrowLeft className="h-4 w-4 mr-1.5" />
+            Back to Conversations
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  const channel = channelConfig[conversationData.channel];
+  const ChannelIcon = channel.icon;
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
@@ -364,6 +206,13 @@ export default function ConversationDetailPage() {
         {/* Left Panel - Message Thread */}
         <div className="flex flex-col flex-1 lg:w-2/3 border-r">
           <ScrollArea className="flex-1 overflow-y-auto">
+            {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <MessageSquare className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium">No messages yet</h3>
+                <p className="text-sm text-muted-foreground mt-1">Messages will appear here as the conversation progresses</p>
+              </div>
+            ) : (
             <div className="p-4 space-y-4">
               {messages.map((msg) => {
                 if (msg.sender === "system") {
@@ -402,7 +251,7 @@ export default function ConversationDetailPage() {
                             : "text-muted-foreground"
                         }`}
                       >
-                        {isAgent ? "Priya (Agent)" : "Ramesh"} &middot;{" "}
+                        {isAgent ? "Agent" : "User"} &middot;{" "}
                         {msg.timestamp}
                       </div>
                     </div>
@@ -410,6 +259,7 @@ export default function ConversationDetailPage() {
                 );
               })}
             </div>
+            )}
           </ScrollArea>
 
           {/* Input Area */}
@@ -475,17 +325,21 @@ export default function ConversationDetailPage() {
                   <CardTitle className="text-sm">Current State</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-3">
+                  {stateTimeline.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No state transitions recorded</p>
+                  ) : (
                   <div className="flex items-center gap-2">
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
                       <Activity className="h-4 w-4 text-primary" />
                     </span>
                     <div>
-                      <p className="font-semibold text-sm">Document Collection</p>
+                      <p className="font-semibold text-sm">{stateTimeline[stateTimeline.length - 1].state}</p>
                       <p className="text-xs text-muted-foreground">
-                        Since 2:35 PM (ongoing)
+                        Since {stateTimeline[stateTimeline.length - 1].timestamp} ({stateTimeline[stateTimeline.length - 1].duration})
                       </p>
                     </div>
                   </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -541,6 +395,9 @@ export default function ConversationDetailPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-3 space-y-2">
+                  {actionsTriggered.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No actions triggered</p>
+                  )}
                   {actionsTriggered.map((action) => {
                     const isExpanded = expandedActions.has(action.id);
                     return (
@@ -604,6 +461,9 @@ export default function ConversationDetailPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-3 space-y-2">
+                  {guardrailsTriggered.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No guardrails triggered</p>
+                  )}
                   {guardrailsTriggered.map((gr) => {
                     const severity = severityConfig[gr.severity];
                     return (

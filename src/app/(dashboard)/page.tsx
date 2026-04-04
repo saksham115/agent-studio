@@ -44,57 +44,45 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 
 // ---------------------------------------------------------------------------
-// Mock data
+// Data — TODO: fetch from API
 // ---------------------------------------------------------------------------
 
 const kpiCards = [
   {
     title: "Total Agents",
-    value: "24",
-    subtitle: "18 active, 6 draft",
+    value: "0",
+    subtitle: "0 active, 0 draft",
     icon: Bot,
     trend: null as null | { value: string; direction: "up" | "down" },
   },
   {
     title: "Total Conversations",
-    value: "1,847",
+    value: "0",
     subtitle: "Today",
     icon: MessageCircle,
-    trend: { value: "+12.3%", direction: "up" as const },
+    trend: null as null | { value: string; direction: "up" | "down" },
   },
   {
     title: "Completion Rate",
-    value: "68.4%",
+    value: "--",
     subtitle: "vs last week",
     icon: Activity,
-    trend: { value: "+3.2%", direction: "up" as const },
+    trend: null as null | { value: string; direction: "up" | "down" },
   },
   {
     title: "Avg Response Time",
-    value: "1.8s",
+    value: "--",
     subtitle: "vs last week",
     icon: Clock,
-    trend: { value: "-0.3s", direction: "up" as const },
+    trend: null as null | { value: string; direction: "up" | "down" },
   },
 ]
 
-const conversationData = [
-  { date: "Mar 29", voice: 180, whatsapp: 320, chatbot: 95 },
-  { date: "Mar 30", voice: 210, whatsapp: 290, chatbot: 110 },
-  { date: "Mar 31", voice: 195, whatsapp: 345, chatbot: 102 },
-  { date: "Apr 01", voice: 240, whatsapp: 380, chatbot: 130 },
-  { date: "Apr 02", voice: 225, whatsapp: 410, chatbot: 145 },
-  { date: "Apr 03", voice: 260, whatsapp: 395, chatbot: 155 },
-  { date: "Apr 04", voice: 275, whatsapp: 430, chatbot: 165 },
-]
+// TODO: fetch from API
+const conversationData: { date: string; voice: number; whatsapp: number; chatbot: number }[] = []
 
-const funnelData = [
-  { stage: "Greeting", count: 1847, percent: 100, fill: "var(--color-chart-1)" },
-  { stage: "Need Discovery", count: 1520, percent: 82, fill: "var(--color-chart-5)" },
-  { stage: "Product Pitch", count: 1105, percent: 60, fill: "var(--color-chart-2)" },
-  { stage: "Quote", count: 810, percent: 44, fill: "var(--color-chart-3)" },
-  { stage: "Closure", count: 485, percent: 26, fill: "var(--color-chart-4)" },
-]
+// TODO: fetch from API
+const funnelData: { stage: string; count: number; percent: number; fill: string }[] = []
 
 type Channel = "Voice" | "WhatsApp" | "Chatbot"
 
@@ -107,69 +95,16 @@ interface RecentConversation {
   timeAgo: string
 }
 
-const recentConversations: RecentConversation[] = [
-  {
-    id: "conv-001",
-    contact: "Rajesh Kumar",
-    agent: "Motor Insurance Bot",
-    channel: "Voice",
-    stateReached: "Quote",
-    timeAgo: "2 min ago",
-  },
-  {
-    id: "conv-002",
-    contact: "Priya Sharma",
-    agent: "Health Advisor",
-    channel: "WhatsApp",
-    stateReached: "Closure",
-    timeAgo: "5 min ago",
-  },
-  {
-    id: "conv-003",
-    contact: "Amit Patel",
-    agent: "Term Life Agent",
-    channel: "Chatbot",
-    stateReached: "Product Pitch",
-    timeAgo: "8 min ago",
-  },
-  {
-    id: "conv-004",
-    contact: "Sunita Reddy",
-    agent: "Motor Insurance Bot",
-    channel: "WhatsApp",
-    stateReached: "Need Discovery",
-    timeAgo: "12 min ago",
-  },
-  {
-    id: "conv-005",
-    contact: "Vikram Singh",
-    agent: "Health Advisor",
-    channel: "Voice",
-    stateReached: "Closure",
-    timeAgo: "18 min ago",
-  },
-]
+// TODO: fetch from API
+const recentConversations: RecentConversation[] = []
 
-const topAgents = [
-  {
-    name: "Motor Insurance Bot",
-    conversations: 642,
-    completionRate: 74,
-    channels: ["Voice", "WhatsApp"] as Channel[],
-  },
-  {
-    name: "Health Advisor",
-    conversations: 531,
-    completionRate: 68,
-    channels: ["Voice", "WhatsApp", "Chatbot"] as Channel[],
-  },
-  {
-    name: "Term Life Agent",
-    conversations: 389,
-    completionRate: 61,
-    channels: ["WhatsApp", "Chatbot"] as Channel[],
-  },
-]
+// TODO: fetch from API
+const topAgents: {
+  name: string
+  conversations: number
+  completionRate: number
+  channels: Channel[]
+}[] = []
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -453,6 +388,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
             {/* Drop-off labels */}
+            {funnelData.length > 1 && (
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
               {funnelData.slice(1).map((stage, i) => {
                 const prev = funnelData[i]
@@ -465,6 +401,7 @@ export default function DashboardPage() {
                 )
               })}
             </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -483,6 +420,13 @@ export default function DashboardPage() {
             <CardDescription>Latest interactions across all agents</CardDescription>
           </CardHeader>
           <CardContent>
+            {recentConversations.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <MessageCircle className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium">No conversations yet</h3>
+                <p className="text-sm text-muted-foreground mt-1">Conversations will appear here once agents start interacting</p>
+              </div>
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -520,6 +464,7 @@ export default function DashboardPage() {
                 ))}
               </TableBody>
             </Table>
+            )}
           </CardContent>
         </Card>
 
@@ -533,6 +478,13 @@ export default function DashboardPage() {
             <CardDescription>Ranked by conversation volume</CardDescription>
           </CardHeader>
           <CardContent>
+            {topAgents.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <Bot className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium">No agents yet</h3>
+                <p className="text-sm text-muted-foreground mt-1">Create your first agent to see performance rankings</p>
+              </div>
+            ) : (
             <div className="space-y-5">
               {topAgents.map((agent, index) => (
                 <div key={agent.name} className="space-y-2">
@@ -569,6 +521,7 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+            )}
           </CardContent>
         </Card>
       </div>

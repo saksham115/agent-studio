@@ -10,6 +10,8 @@ import {
   Moon,
   Sun,
   Zap,
+  LogOut,
+  ChevronsUpDown,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import {
@@ -24,6 +26,16 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { signOutAction } from "@/lib/auth-actions"
 
 const navItems = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -31,9 +43,26 @@ const navItems = [
   { title: "Conversations", href: "/conversations", icon: MessageSquare },
 ]
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  user?: {
+    name?: string | null
+    email?: string | null
+    image?: string | null
+  }
+}
+
+export function AppSidebar({ user }: AppSidebarProps) {
   const pathname = usePathname()
   const { theme, setTheme } = useTheme()
+
+  const initials = user?.name
+    ? user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "?"
 
   return (
     <Sidebar collapsible="icon">
@@ -104,6 +133,74 @@ export function AppSidebar() {
               <span>Toggle Theme</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+
+          {/* User menu */}
+          {user && (
+            <SidebarMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <SidebarMenuButton
+                      size="lg"
+                      className="data-popup-open:bg-sidebar-accent data-popup-open:text-sidebar-accent-foreground"
+                    />
+                  }
+                >
+                  <Avatar className="size-8 rounded-lg">
+                    {user.image && (
+                      <AvatarImage src={user.image} alt={user.name ?? ""} />
+                    )}
+                    <AvatarFallback className="rounded-lg">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold">
+                      {user.name ?? "User"}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {user.email ?? ""}
+                    </span>
+                  </div>
+                  <ChevronsUpDown className="ml-auto size-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className="w-[--anchor-width] min-w-56 rounded-lg"
+                  side="top"
+                  align="end"
+                  sideOffset={4}
+                >
+                  <DropdownMenuLabel className="p-0 font-normal">
+                    <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                      <Avatar className="size-8 rounded-lg">
+                        {user.image && (
+                          <AvatarImage src={user.image} alt={user.name ?? ""} />
+                        )}
+                        <AvatarFallback className="rounded-lg">
+                          {initials}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="grid flex-1 text-left text-sm leading-tight">
+                        <span className="truncate font-semibold">
+                          {user.name ?? "User"}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {user.email ?? ""}
+                        </span>
+                      </div>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => signOutAction()}
+                  >
+                    <LogOut />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItem>
+          )}
         </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
