@@ -531,9 +531,9 @@ export function WizardShell() {
               );
             })}
           </div>
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-4xl p-6">{renderStep()}</div>
-          </ScrollArea>
+          </div>
 
           {/* Bottom Bar */}
           <div className="flex shrink-0 items-center justify-between border-t bg-muted/20 px-6 py-3">
