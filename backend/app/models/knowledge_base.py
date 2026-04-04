@@ -1,8 +1,9 @@
 import enum
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, Enum, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -84,9 +85,7 @@ class KBChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Vector column placeholder -- pgvector will be used for actual embeddings.
-    # To enable: from pgvector.sqlalchemy import Vector
-    # embedding: Mapped[Any] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[Any] = mapped_column(Vector(1536), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(
         "metadata", JSONB, nullable=True
     )

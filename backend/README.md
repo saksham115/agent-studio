@@ -98,3 +98,27 @@ All endpoints are prefixed with `/api/v1`.
 | GET | /conversations/:id | Get conversation detail |
 | GET | /dashboard/overview | Dashboard stats |
 | GET | /dashboard/:id/stats | Agent stats |
+| **Chatbot Public API** | | |
+| POST | /chat/:agent_id/sessions | Create chat session |
+| POST | /chat/:agent_id/sessions/:sid/messages | Send message |
+| GET | /chat/:agent_id/sessions/:sid | Get session history |
+| DELETE | /chat/:agent_id/sessions/:sid | End session |
+
+## Architecture
+
+```
+User message → Chatbot API → Orchestrator
+                                ├── Prompt Builder (system prompt + state + guardrails + KB)
+                                ├── KB Retrieval (pgvector cosine similarity)
+                                ├── Claude API (reasoning + tool use)
+                                ├── Action Executor (API calls, data lookups)
+                                ├── Guardrail Service (PII, compliance, topic checks)
+                                └── State Machine (transition evaluation)
+```
+
+## Required API Keys
+
+For the chatbot channel MVP, you need:
+- **ANTHROPIC_API_KEY** — Claude API for LLM reasoning
+- **OPENAI_API_KEY** — OpenAI text-embedding-3-small for KB vectorization
+- **AUTH_SECRET** — Must match the frontend NextAuth secret
