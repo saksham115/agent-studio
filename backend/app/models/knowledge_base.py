@@ -46,12 +46,12 @@ class KBDocument(Base):
     )
     filename: Mapped[str] = mapped_column(String(512), nullable=False)
     source_type: Mapped[SourceType] = mapped_column(
-        Enum(SourceType, name="source_type_enum"), nullable=False
+        Enum(SourceType, values_callable=lambda x: [e.value for e in x], name="source_type_enum"), nullable=False
     )
     s3_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[DocumentStatus] = mapped_column(
-        Enum(DocumentStatus, name="document_status_enum"),
+        Enum(DocumentStatus, values_callable=lambda x: [e.value for e in x], name="document_status_enum"),
         nullable=False,
         default=DocumentStatus.PENDING,
     )
@@ -107,7 +107,7 @@ class KBStructuredSource(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     source_type: Mapped[StructuredSourceType] = mapped_column(
-        Enum(StructuredSourceType, name="structured_source_type_enum"), nullable=False
+        Enum(StructuredSourceType, values_callable=lambda x: [e.value for e in x], name="structured_source_type_enum"), nullable=False
     )
     connection_config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     query_template: Mapped[str | None] = mapped_column(Text, nullable=True)

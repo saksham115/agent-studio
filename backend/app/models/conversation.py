@@ -43,7 +43,7 @@ class Conversation(Base):
     external_user_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     external_user_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[ConversationStatus] = mapped_column(
-        Enum(ConversationStatus, name="conversation_status_enum"),
+        Enum(ConversationStatus, values_callable=lambda x: [e.value for e in x], name="conversation_status_enum"),
         nullable=False,
         default=ConversationStatus.ACTIVE,
     )
@@ -81,7 +81,7 @@ class Message(Base):
         UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     role: Mapped[MessageRole] = mapped_column(
-        Enum(MessageRole, name="message_role_enum"), nullable=False
+        Enum(MessageRole, values_callable=lambda x: [e.value for e in x], name="message_role_enum"), nullable=False
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_type: Mapped[str] = mapped_column(

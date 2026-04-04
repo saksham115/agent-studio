@@ -34,7 +34,7 @@ class Action(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     action_type: Mapped[ActionType] = mapped_column(
-        Enum(ActionType, name="action_type_enum"), nullable=False
+        Enum(ActionType, values_callable=lambda x: [e.value for e in x], name="action_type_enum"), nullable=False
     )
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     input_params: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

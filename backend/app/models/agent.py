@@ -42,7 +42,7 @@ class Agent(Base):
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     persona: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[AgentStatus] = mapped_column(
-        Enum(AgentStatus, name="agent_status_enum"),
+        Enum(AgentStatus, values_callable=lambda x: [e.value for e in x], name="agent_status_enum"),
         nullable=False,
         default=AgentStatus.DRAFT,
     )

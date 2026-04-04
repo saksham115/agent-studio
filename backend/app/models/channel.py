@@ -38,10 +38,10 @@ class Channel(Base):
         UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     channel_type: Mapped[ChannelType] = mapped_column(
-        Enum(ChannelType, name="channel_type_enum"), nullable=False
+        Enum(ChannelType, values_callable=lambda x: [e.value for e in x], name="channel_type_enum"), nullable=False
     )
     status: Mapped[ChannelStatus] = mapped_column(
-        Enum(ChannelStatus, name="channel_status_enum"),
+        Enum(ChannelStatus, values_callable=lambda x: [e.value for e in x], name="channel_status_enum"),
         nullable=False,
         default=ChannelStatus.INACTIVE,
     )

@@ -41,11 +41,11 @@ class Guardrail(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     guardrail_type: Mapped[GuardrailType] = mapped_column(
-        Enum(GuardrailType, name="guardrail_type_enum"), nullable=False
+        Enum(GuardrailType, values_callable=lambda x: [e.value for e in x], name="guardrail_type_enum"), nullable=False
     )
     rule: Mapped[str] = mapped_column(Text, nullable=False)
     action: Mapped[GuardrailAction] = mapped_column(
-        Enum(GuardrailAction, name="guardrail_action_enum"),
+        Enum(GuardrailAction, values_callable=lambda x: [e.value for e in x], name="guardrail_action_enum"),
         nullable=False,
         default=GuardrailAction.BLOCK,
     )
