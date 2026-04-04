@@ -1,6 +1,6 @@
-"""Embedding generation service using OpenAI's text-embedding-3-small model.
+"""Embedding generation service using Voyage AI's voyage-3 model.
 
-Calls the OpenAI embeddings API directly via httpx -- no OpenAI SDK required.
+Calls the Voyage AI embeddings API directly via httpx -- no SDK required.
 """
 
 from __future__ import annotations
@@ -15,23 +15,23 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
+_VOYAGE_EMBEDDINGS_URL = "https://api.voyageai.com/v1/embeddings"
 _MAX_BATCH_SIZE = 100
 _MAX_RETRIES = 3
 _INITIAL_BACKOFF_SECONDS = 1.0
 
 
 class EmbeddingError(Exception):
-    """Raised when the OpenAI embeddings API returns an error."""
+    """Raised when the Voyage AI embeddings API returns an error."""
 
 
 class EmbeddingService:
-    """Generate vector embeddings via the OpenAI API."""
+    """Generate vector embeddings via the Voyage AI API."""
 
     def __init__(self) -> None:
-        self.api_key: str = settings.OPENAI_API_KEY
-        self.model: str = "text-embedding-3-small"
-        self.dimensions: int = 1536
+        self.api_key: str = settings.VOYAGE_API_KEY
+        self.model: str = "voyage-3"
+        self.dimensions: int = 1024
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -45,7 +45,7 @@ class EmbeddingService:
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts.
 
-        The OpenAI API allows at most 100 inputs per request, so larger
+        The Voyage AI API allows at most 128 inputs per request, so larger
         batches are automatically split into multiple calls.
         """
         if not texts:
@@ -63,10 +63,10 @@ class EmbeddingService:
     # ------------------------------------------------------------------
 
     async def _call_api(self, texts: list[str]) -> list[list[float]]:
-        """Call the OpenAI embeddings endpoint with retry + exponential backoff."""
+        """Call the Voyage AI embeddings endpoint with retry + exponential backoff."""
         if not self.api_key:
             raise EmbeddingError(
-                "OPENAI_API_KEY is not configured. Set it in your environment or .env file."
+                "VOYAGE_API_KEY is not configured. Set it in your environment or .env file."
             )
 
         headers = {
@@ -76,7 +76,6 @@ class EmbeddingService:
         payload: dict[str, Any] = {
             "input": texts,
             "model": self.model,
-            "dimensions": self.dimensions,
         }
 
         last_exception: Exception | None = None
@@ -86,7 +85,7 @@ class EmbeddingService:
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     response = await client.post(
-                        _OPENAI_EMBEDDINGS_URL,
+                        _VOYAGE_EMBEDDINGS_URL,
                         headers=headers,
                         json=payload,
                     )
@@ -101,10 +100,10 @@ class EmbeddingService:
                 # Rate-limit or transient server error -- retry
                 if response.status_code in (429, 500, 502, 503, 504):
                     last_exception = EmbeddingError(
-                        f"OpenAI API returned {response.status_code}: {response.text}"
+                        f"Voyage AI API returned {response.status_code}: {response.text}"
                     )
                     logger.warning(
-                        "OpenAI embeddings API attempt %d/%d failed with %d, retrying in %.1fs",
+                        "Voyage AI embeddings API attempt %d/%d failed with %d, retrying in %.1fs",
                         attempt,
                         _MAX_RETRIES,
                         response.status_code,
@@ -116,13 +115,13 @@ class EmbeddingService:
 
                 # Non-retryable error
                 raise EmbeddingError(
-                    f"OpenAI embeddings API error {response.status_code}: {response.text}"
+                    f"Voyage AI embeddings API error {response.status_code}: {response.text}"
                 )
 
             except httpx.HTTPError as exc:
                 last_exception = exc
                 logger.warning(
-                    "OpenAI embeddings API attempt %d/%d raised %s, retrying in %.1fs",
+                    "Voyage AI embeddings API attempt %d/%d raised %s, retrying in %.1fs",
                     attempt,
                     _MAX_RETRIES,
                     exc,
@@ -132,5 +131,5 @@ class EmbeddingService:
                 backoff *= 2
 
         raise EmbeddingError(
-            f"OpenAI embeddings API failed after {_MAX_RETRIES} retries"
+            f"Voyage AI embeddings API failed after {_MAX_RETRIES} retries"
         ) from last_exception

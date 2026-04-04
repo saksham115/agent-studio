@@ -18,6 +18,7 @@ class GuardrailCreate(BaseModel):
 
 class GuardrailUpdate(BaseModel):
     """Schema for updating an existing guardrail."""
+    id: uuid.UUID
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     guardrail_type: str | None = Field(default=None, pattern="^(input|output|topic|compliance|pii|custom)$")

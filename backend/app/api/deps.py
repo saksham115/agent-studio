@@ -1,3 +1,4 @@
+import uuid
 from collections.abc import AsyncGenerator
 
 from fastapi import Depends, HTTPException, status
@@ -7,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session_factory
+from app.models.agent import Agent
 from app.schemas.auth import CurrentUser
+from app.services.agent_service import AgentService
 
 security = HTTPBearer()
 
@@ -62,3 +65,16 @@ async def get_current_user(
         name=payload.get("name", ""),
         role=payload.get("role", "member"),
     )
+
+
+async def verify_agent_ownership(
+    agent_id: uuid.UUID,
+    db: AsyncSession,
+    current_user: CurrentUser,
+) -> Agent:
+    """Verify an agent belongs to the current user's organization and return it."""
+    service = AgentService(db)
+    agent = await service.get_agent_by_id(agent_id, uuid.UUID(current_user.org_id))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return agent

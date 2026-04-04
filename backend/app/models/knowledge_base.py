@@ -85,7 +85,7 @@ class KBChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    embedding: Mapped[Any] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(
         "metadata", JSONB, nullable=True
     )

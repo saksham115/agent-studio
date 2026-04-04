@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     EXOTEL_API_KEY: str = ""
     GUPSHUP_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    VOYAGE_API_KEY: str = ""
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
     model_config = {
