@@ -25,7 +25,11 @@ import {
   GlobeIcon,
   ChevronDownIcon,
   ChevronUpIcon,
+  CopyIcon,
+  CheckIcon,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
 
 interface VoiceConfig {
   phoneNumber: string;
@@ -47,6 +51,15 @@ interface WhatsAppConfig {
   mediaDocuments: boolean;
   mediaVoiceNotes: boolean;
   languageDetection: boolean;
+  // Gupshup-specific
+  gupshupApiKey: string;
+  gupshupAppName: string;
+  // Meta Cloud API-specific
+  metaPhoneNumberId: string;
+  metaBusinessAccountId: string;
+  metaAccessToken: string;
+  metaAppSecret: string;
+  metaVerifyToken: string;
 }
 
 interface ChatbotConfig {
@@ -66,6 +79,183 @@ interface StepChannelsData {
 interface StepChannelsProps {
   data: StepChannelsData;
   onChange: (data: StepChannelsData) => void;
+}
+
+function WhatsAppProviderFields({
+  provider,
+  config,
+  onUpdate,
+}: {
+  provider: string;
+  config: WhatsAppConfig;
+  onUpdate: (updates: Partial<WhatsAppConfig>) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const webhookUrl = `https://your-domain.com/api/v1/webhooks/whatsapp/{agent_id}`;
+
+  function handleCopyWebhook() {
+    navigator.clipboard.writeText(webhookUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  if (provider === "meta_cloud") {
+    return (
+      <>
+        <div className="space-y-2">
+          <Label htmlFor="wa-meta-phone-id">Phone Number ID</Label>
+          <Input
+            id="wa-meta-phone-id"
+            placeholder="1234567890123456"
+            value={config.metaPhoneNumberId}
+            onChange={(e) =>
+              onUpdate({ metaPhoneNumberId: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            From your Meta Developer Dashboard &rarr; WhatsApp &rarr; API Setup.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="wa-meta-biz-id">WhatsApp Business Account ID</Label>
+          <Input
+            id="wa-meta-biz-id"
+            placeholder="9876543210123456"
+            value={config.metaBusinessAccountId}
+            onChange={(e) =>
+              onUpdate({ metaBusinessAccountId: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Found in WhatsApp &rarr; Business Settings.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="wa-meta-token">Access Token</Label>
+          <Input
+            id="wa-meta-token"
+            type="password"
+            placeholder="EAAx..."
+            value={config.metaAccessToken}
+            onChange={(e) =>
+              onUpdate({ metaAccessToken: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            System User permanent token from Meta Business Settings.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="wa-meta-secret">App Secret</Label>
+          <Input
+            id="wa-meta-secret"
+            type="password"
+            placeholder="abc123def456..."
+            value={config.metaAppSecret}
+            onChange={(e) =>
+              onUpdate({ metaAppSecret: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            From your Meta App &rarr; Settings &rarr; Basic.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="wa-meta-verify">Verify Token</Label>
+          <Input
+            id="wa-meta-verify"
+            placeholder="my-custom-verify-token"
+            value={config.metaVerifyToken}
+            onChange={(e) =>
+              onUpdate({ metaVerifyToken: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Any custom string &mdash; you will enter this same value in Meta&apos;s
+            webhook config.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Webhook URL</Label>
+          <div className="flex gap-2">
+            <Input
+              readOnly
+              value={webhookUrl}
+              className="font-mono text-xs bg-muted"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={handleCopyWebhook}
+              className="shrink-0"
+            >
+              {copied ? (
+                <CheckIcon className="size-4 text-green-600" />
+              ) : (
+                <CopyIcon className="size-4" />
+              )}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Copy this webhook URL and paste it in your Meta Developer Dashboard
+            &rarr; WhatsApp &rarr; Configuration &rarr; Webhook URL. Replace{" "}
+            <code className="rounded bg-muted px-1 text-[11px]">your-domain.com</code>{" "}
+            with your actual domain and{" "}
+            <code className="rounded bg-muted px-1 text-[11px]">{"{agent_id}"}</code>{" "}
+            with the agent ID after creation.
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  if (provider === "gupshup") {
+    return (
+      <>
+        <div className="space-y-2">
+          <Label htmlFor="wa-gs-apikey">API Key</Label>
+          <Input
+            id="wa-gs-apikey"
+            type="password"
+            placeholder="Gupshup API key"
+            value={config.gupshupApiKey}
+            onChange={(e) =>
+              onUpdate({ gupshupApiKey: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            From your Gupshup dashboard &rarr; API Keys.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="wa-gs-appname">App Name</Label>
+          <Input
+            id="wa-gs-appname"
+            placeholder="MyWhatsAppApp"
+            value={config.gupshupAppName}
+            onChange={(e) =>
+              onUpdate({ gupshupAppName: e.target.value })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            The app name registered on your Gupshup dashboard.
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  // Default: no provider-specific fields yet
+  return null;
 }
 
 export function StepChannels({ data, onChange }: StepChannelsProps) {
@@ -378,6 +568,13 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
                     WhatsApp Business number registered with the BSP.
                   </p>
                 </div>
+
+                {/* Provider-specific fields */}
+                <WhatsAppProviderFields
+                  provider={data.whatsapp.config.provider}
+                  config={data.whatsapp.config}
+                  onUpdate={updateWhatsAppConfig}
+                />
 
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="wa-welcome">Welcome Message</Label>

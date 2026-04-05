@@ -1,9 +1,9 @@
 """Webhook endpoints for external service callbacks.
 
-These endpoints are called by third-party services (Gupshup, Exotel)
+These endpoints are called by third-party services (Gupshup, Meta, Exotel)
 and must be publicly accessible (no auth). They handle:
 
-WhatsApp (Gupshup):
+WhatsApp (Gupshup / Meta Cloud API):
 - GET  /webhooks/whatsapp/{agent_id} — Webhook verification (hub.challenge)
 - POST /webhooks/whatsapp/{agent_id} — Incoming message processing
 
@@ -30,6 +30,8 @@ from app.models.channel import Channel, ChannelType, ChannelStatus
 from app.models.channel import WhatsAppProvider as WhatsAppProviderModel
 from app.models.conversation import Conversation
 from app.services.channels.whatsapp.gupshup import GupshupAdapter
+from app.services.channels.whatsapp.meta_cloud import MetaCloudAdapter
+from app.services.channels.whatsapp.provider import WhatsAppProviderBase
 from app.services.channels.whatsapp.handler import WhatsAppMessageHandler
 from app.services.channels.voice.exotel import CallEvent, ExotelClient
 from app.services.channels.voice.handler import VoiceCallHandler
@@ -52,6 +54,7 @@ _active_calls: dict[str, uuid.UUID] = {}
 async def verify_whatsapp_webhook(
     agent_id: uuid.UUID,
     request: Request,
+    db: AsyncSession = Depends(get_db),
 ) -> PlainTextResponse:
     """Handle WhatsApp webhook verification (GET request).
 
@@ -61,11 +64,29 @@ async def verify_whatsapp_webhook(
     - ``hub.verify_token`` = the verify token configured in the dashboard
 
     We return the ``hub.challenge`` value as plain text to confirm the
-    webhook URL.
+    webhook URL.  If a verify token is configured on the channel, the
+    incoming ``hub.verify_token`` must match.
     """
     params = request.query_params
 
-    # Gupshup uses hub.challenge (same as Meta Cloud API pattern)
+    # -- Verify the token if configured ----------------------------------------
+    channel, wa_provider = await _load_whatsapp_channel(db, agent_id)
+
+    verify_token = ""
+    if wa_provider:
+        verify_token = wa_provider.webhook_verify_token or ""
+    elif channel:
+        verify_token = (channel.config or {}).get("verify_token", "")
+
+    hub_verify_token = params.get("hub.verify_token", "")
+    if verify_token and hub_verify_token != verify_token:
+        logger.warning(
+            "WhatsApp webhook verification failed for agent=%s — token mismatch",
+            agent_id,
+        )
+        return PlainTextResponse(content="Forbidden", status_code=403)
+
+    # -- Return the challenge --------------------------------------------------
     challenge = params.get("hub.challenge", "")
 
     if challenge:
@@ -93,12 +114,12 @@ async def handle_whatsapp_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Handle incoming WhatsApp messages from Gupshup.
+    """Handle incoming WhatsApp messages from Gupshup or Meta Cloud API.
 
     Flow:
     1. Parse the raw webhook JSON payload.
     2. Look up the WhatsApp channel configuration for this agent.
-    3. Create the Gupshup adapter with the stored credentials.
+    3. Create the appropriate adapter (Gupshup or Meta) from stored config.
     4. Parse the message via ``adapter.parse_webhook()``.
     5. Process via ``WhatsAppMessageHandler``.
     6. Send the agent's response back via ``adapter.send_text()``.
@@ -127,7 +148,7 @@ async def handle_whatsapp_webhook(
         )
 
     # -- 3. Build adapter from stored config ----------------------------------
-    adapter = _build_adapter(channel, wa_provider)
+    adapter = _build_whatsapp_adapter(channel, wa_provider)
 
     # -- 4. Parse webhook payload ---------------------------------------------
     message = adapter.parse_webhook(payload)
@@ -161,7 +182,7 @@ async def handle_whatsapp_webhook(
             send_result.error,
         )
 
-    # -- 7. Return 200 OK to Gupshup -----------------------------------------
+    # -- 7. Return 200 OK to the BSP ------------------------------------------
     return JSONResponse(content={"status": "ok"}, status_code=200)
 
 
@@ -200,7 +221,29 @@ async def _load_whatsapp_channel(
     return channel, wa_provider
 
 
-def _build_adapter(
+def _build_whatsapp_adapter(
+    channel: Channel,
+    wa_provider: WhatsAppProviderModel | None,
+) -> WhatsAppProviderBase:
+    """Construct the correct WhatsApp adapter based on the provider type.
+
+    Inspects the provider name (from the ``WhatsAppProvider`` record or
+    the channel ``config.provider`` field) and delegates to the
+    provider-specific builder.
+    """
+    provider_type = ""
+    if wa_provider:
+        provider_type = wa_provider.provider_name or ""
+    if not provider_type:
+        provider_type = (channel.config or {}).get("provider", "gupshup")
+
+    if provider_type == "meta_cloud":
+        return _build_meta_adapter(channel, wa_provider)
+    else:
+        return _build_gupshup_adapter(channel, wa_provider)
+
+
+def _build_gupshup_adapter(
     channel: Channel,
     wa_provider: WhatsAppProviderModel | None,
 ) -> GupshupAdapter:
@@ -248,6 +291,51 @@ def _build_adapter(
         app_name=app_name,
         source_phone=source_phone,
         webhook_secret=webhook_secret,
+    )
+
+
+def _build_meta_adapter(
+    channel: Channel,
+    wa_provider: WhatsAppProviderModel | None,
+) -> MetaCloudAdapter:
+    """Construct a MetaCloudAdapter from the channel and provider config.
+
+    Credentials are resolved with the following priority:
+    1. WhatsAppProvider record (``api_key_encrypted``, ``phone_number_id``, ``config``)
+    2. Channel ``config`` JSONB field
+    """
+    config = channel.config or {}
+    access_token = ""
+    phone_number_id = ""
+    app_secret: str | None = None
+    verify_token: str | None = None
+
+    if wa_provider:
+        access_token = wa_provider.api_key_encrypted or ""
+        phone_number_id = wa_provider.phone_number_id or ""
+        app_secret = (wa_provider.config or {}).get("app_secret")
+        verify_token = wa_provider.webhook_verify_token
+
+    if not access_token:
+        access_token = config.get("access_token", "")
+    if not phone_number_id:
+        phone_number_id = config.get("phone_number_id", "")
+    if not app_secret:
+        app_secret = config.get("app_secret")
+    if not verify_token:
+        verify_token = config.get("verify_token")
+
+    if not access_token:
+        logger.error(
+            "No Meta Cloud API access token configured for channel %s",
+            channel.id,
+        )
+
+    return MetaCloudAdapter(
+        access_token=access_token,
+        phone_number_id=phone_number_id,
+        app_secret=app_secret,
+        verify_token=verify_token,
     )
 
 

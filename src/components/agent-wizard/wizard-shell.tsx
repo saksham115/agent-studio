@@ -112,6 +112,13 @@ interface WizardFormData {
         mediaDocuments: boolean;
         mediaVoiceNotes: boolean;
         languageDetection: boolean;
+        gupshupApiKey: string;
+        gupshupAppName: string;
+        metaPhoneNumberId: string;
+        metaBusinessAccountId: string;
+        metaAccessToken: string;
+        metaAppSecret: string;
+        metaVerifyToken: string;
       };
     };
     chatbot: {
@@ -182,6 +189,13 @@ const INITIAL_FORM_DATA: WizardFormData = {
         mediaDocuments: true,
         mediaVoiceNotes: false,
         languageDetection: true,
+        gupshupApiKey: "",
+        gupshupAppName: "",
+        metaPhoneNumberId: "",
+        metaBusinessAccountId: "",
+        metaAccessToken: "",
+        metaAppSecret: "",
+        metaVerifyToken: "",
       },
     },
     chatbot: {
