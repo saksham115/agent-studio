@@ -27,7 +27,13 @@ import {
   ChevronUpIcon,
   CopyIcon,
   CheckIcon,
+  HelpCircleIcon,
 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 
@@ -105,7 +111,23 @@ function WhatsAppProviderFields({
     return (
       <>
         <div className="space-y-2">
-          <Label htmlFor="wa-meta-phone-id">Phone Number ID</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="wa-meta-phone-id">Phone Number ID</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">How to find your Phone Number ID:</p>
+                <ol className="list-decimal pl-3 space-y-0.5">
+                  <li>Go to developers.facebook.com</li>
+                  <li>Select your app</li>
+                  <li>WhatsApp &rarr; API Setup</li>
+                  <li>The Phone Number ID is shown under your test or production number</li>
+                </ol>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             id="wa-meta-phone-id"
             placeholder="1234567890123456"
@@ -114,13 +136,26 @@ function WhatsAppProviderFields({
               onUpdate({ metaPhoneNumberId: e.target.value })
             }
           />
-          <p className="text-xs text-muted-foreground">
-            From your Meta Developer Dashboard &rarr; WhatsApp &rarr; API Setup.
-          </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="wa-meta-biz-id">WhatsApp Business Account ID</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="wa-meta-biz-id">WhatsApp Business Account ID</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">How to find your WABA ID:</p>
+                <ol className="list-decimal pl-3 space-y-0.5">
+                  <li>Go to business.facebook.com</li>
+                  <li>Settings &rarr; Business Settings</li>
+                  <li>Accounts &rarr; WhatsApp Accounts</li>
+                  <li>Select your account — the ID is in the URL or info panel</li>
+                </ol>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             id="wa-meta-biz-id"
             placeholder="9876543210123456"
@@ -129,13 +164,28 @@ function WhatsAppProviderFields({
               onUpdate({ metaBusinessAccountId: e.target.value })
             }
           />
-          <p className="text-xs text-muted-foreground">
-            Found in WhatsApp &rarr; Business Settings.
-          </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="wa-meta-token">Access Token</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="wa-meta-token">Access Token</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">How to get a permanent token:</p>
+                <ol className="list-decimal pl-3 space-y-0.5">
+                  <li>Go to business.facebook.com &rarr; Business Settings</li>
+                  <li>Users &rarr; System Users &rarr; Add (if none exist)</li>
+                  <li>Select the system user &rarr; Generate New Token</li>
+                  <li>Select your app, grant whatsapp_business_messaging and whatsapp_business_management permissions</li>
+                  <li>Copy the token (it won&apos;t be shown again)</li>
+                </ol>
+                <p className="mt-1 text-muted-foreground">The temporary token from API Setup expires in 24h. Use a System User token for production.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             id="wa-meta-token"
             type="password"
@@ -145,13 +195,27 @@ function WhatsAppProviderFields({
               onUpdate({ metaAccessToken: e.target.value })
             }
           />
-          <p className="text-xs text-muted-foreground">
-            System User permanent token from Meta Business Settings.
-          </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="wa-meta-secret">App Secret</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="wa-meta-secret">App Secret</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">How to find your App Secret:</p>
+                <ol className="list-decimal pl-3 space-y-0.5">
+                  <li>Go to developers.facebook.com</li>
+                  <li>Select your app</li>
+                  <li>Settings &rarr; Basic</li>
+                  <li>Click &ldquo;Show&rdquo; next to App Secret</li>
+                </ol>
+                <p className="mt-1 text-muted-foreground">Used to verify that incoming webhooks are genuinely from Meta (HMAC-SHA256 signature).</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             id="wa-meta-secret"
             type="password"
@@ -161,13 +225,26 @@ function WhatsAppProviderFields({
               onUpdate({ metaAppSecret: e.target.value })
             }
           />
-          <p className="text-xs text-muted-foreground">
-            From your Meta App &rarr; Settings &rarr; Basic.
-          </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="wa-meta-verify">Verify Token</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="wa-meta-verify">Verify Token</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">What is the Verify Token?</p>
+                <p>This is any custom string you create (e.g. &ldquo;agent-studio-2026&rdquo;). You&apos;ll enter the same value in both:</p>
+                <ul className="list-disc pl-3 mt-1 space-y-0.5">
+                  <li>This field</li>
+                  <li>Meta Developer Dashboard &rarr; WhatsApp &rarr; Configuration &rarr; Verify Token</li>
+                </ul>
+                <p className="mt-1 text-muted-foreground">Meta sends this token during webhook setup to verify your server.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             id="wa-meta-verify"
             placeholder="my-custom-verify-token"
@@ -176,14 +253,30 @@ function WhatsAppProviderFields({
               onUpdate({ metaVerifyToken: e.target.value })
             }
           />
-          <p className="text-xs text-muted-foreground">
-            Any custom string &mdash; you will enter this same value in Meta&apos;s
-            webhook config.
-          </p>
         </div>
 
         <div className="space-y-2">
-          <Label>Webhook URL</Label>
+          <div className="flex items-center gap-1.5">
+            <Label>Webhook URL</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">How to set up the webhook:</p>
+                <ol className="list-decimal pl-3 space-y-0.5">
+                  <li>Copy this URL</li>
+                  <li>Go to developers.facebook.com &rarr; your app</li>
+                  <li>WhatsApp &rarr; Configuration</li>
+                  <li>Click &ldquo;Edit&rdquo; on the Webhook section</li>
+                  <li>Paste this URL as the Callback URL</li>
+                  <li>Enter your Verify Token</li>
+                  <li>Subscribe to &ldquo;messages&rdquo; field</li>
+                </ol>
+                <p className="mt-1 text-muted-foreground">Your server must be publicly accessible (use ngrok for local dev).</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <div className="flex gap-2">
             <Input
               readOnly
@@ -198,19 +291,14 @@ function WhatsAppProviderFields({
               className="shrink-0"
             >
               {copied ? (
-                <CheckIcon className="size-4 text-green-600" />
+                <CheckIcon className="size-4 text-primary" />
               ) : (
                 <CopyIcon className="size-4" />
               )}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Copy this webhook URL and paste it in your Meta Developer Dashboard
-            &rarr; WhatsApp &rarr; Configuration &rarr; Webhook URL. Replace{" "}
-            <code className="rounded bg-muted px-1 text-[11px]">your-domain.com</code>{" "}
-            with your actual domain and{" "}
-            <code className="rounded bg-muted px-1 text-[11px]">{"{agent_id}"}</code>{" "}
-            with the agent ID after creation.
+            Replace <code className="rounded bg-muted px-1 text-[11px]">your-domain.com</code> with your actual domain and <code className="rounded bg-muted px-1 text-[11px]">{"{agent_id}"}</code> with the agent ID after creation.
           </p>
         </div>
       </>
@@ -221,7 +309,22 @@ function WhatsAppProviderFields({
     return (
       <>
         <div className="space-y-2">
-          <Label htmlFor="wa-gs-apikey">API Key</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="wa-gs-apikey">API Key</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">How to find your Gupshup API Key:</p>
+                <ol className="list-decimal pl-3 space-y-0.5">
+                  <li>Log in to gupshup.io/developer</li>
+                  <li>Go to Dashboard &rarr; Profile &rarr; API Keys</li>
+                  <li>Copy the API key shown</li>
+                </ol>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             id="wa-gs-apikey"
             type="password"
@@ -231,13 +334,26 @@ function WhatsAppProviderFields({
               onUpdate({ gupshupApiKey: e.target.value })
             }
           />
-          <p className="text-xs text-muted-foreground">
-            From your Gupshup dashboard &rarr; API Keys.
-          </p>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="wa-gs-appname">App Name</Label>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="wa-gs-appname">App Name</Label>
+            <Tooltip>
+              <TooltipTrigger>
+                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                <p className="font-medium mb-1">Where to find your App Name:</p>
+                <ol className="list-decimal pl-3 space-y-0.5">
+                  <li>Log in to gupshup.io/developer</li>
+                  <li>Go to your WhatsApp apps list</li>
+                  <li>The app name is shown next to each app</li>
+                </ol>
+                <p className="mt-1 text-muted-foreground">This is the name you gave when creating the app, not the display name.</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <Input
             id="wa-gs-appname"
             placeholder="MyWhatsAppApp"
@@ -246,9 +362,6 @@ function WhatsAppProviderFields({
               onUpdate({ gupshupAppName: e.target.value })
             }
           />
-          <p className="text-xs text-muted-foreground">
-            The app name registered on your Gupshup dashboard.
-          </p>
         </div>
       </>
     );
