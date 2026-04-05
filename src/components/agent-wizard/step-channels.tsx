@@ -25,8 +25,6 @@ import {
   GlobeIcon,
   ChevronDownIcon,
   ChevronUpIcon,
-  CopyIcon,
-  CheckIcon,
   HelpCircleIcon,
 } from "lucide-react";
 import {
@@ -34,8 +32,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/button";
-import { useState } from "react";
 
 interface VoiceConfig {
   phoneNumber: string;
@@ -96,17 +92,6 @@ function WhatsAppProviderFields({
   config: WhatsAppConfig;
   onUpdate: (updates: Partial<WhatsAppConfig>) => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  const webhookUrl = `https://your-domain.com/api/v1/webhooks/whatsapp/{agent_id}`;
-
-  function handleCopyWebhook() {
-    navigator.clipboard.writeText(webhookUrl).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
   if (provider === "meta_cloud") {
     return (
       <>
@@ -227,78 +212,10 @@ function WhatsAppProviderFields({
           />
         </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <Label htmlFor="wa-meta-verify">Verify Token</Label>
-            <Tooltip>
-              <TooltipTrigger>
-                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-xs">
-                <p className="font-medium mb-1">What is the Verify Token?</p>
-                <p>This is any custom string you create (e.g. &ldquo;agent-studio-2026&rdquo;). You&apos;ll enter the same value in both:</p>
-                <ul className="list-disc pl-3 mt-1 space-y-0.5">
-                  <li>This field</li>
-                  <li>Meta Developer Dashboard &rarr; WhatsApp &rarr; Configuration &rarr; Verify Token</li>
-                </ul>
-                <p className="mt-1 text-muted-foreground">Meta sends this token during webhook setup to verify your server.</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <Input
-            id="wa-meta-verify"
-            placeholder="my-custom-verify-token"
-            value={config.metaVerifyToken}
-            onChange={(e) =>
-              onUpdate({ metaVerifyToken: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <Label>Webhook URL</Label>
-            <Tooltip>
-              <TooltipTrigger>
-                <HelpCircleIcon className="size-3.5 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-xs">
-                <p className="font-medium mb-1">How to set up the webhook:</p>
-                <ol className="list-decimal pl-3 space-y-0.5">
-                  <li>Copy this URL</li>
-                  <li>Go to developers.facebook.com &rarr; your app</li>
-                  <li>WhatsApp &rarr; Configuration</li>
-                  <li>Click &ldquo;Edit&rdquo; on the Webhook section</li>
-                  <li>Paste this URL as the Callback URL</li>
-                  <li>Enter your Verify Token</li>
-                  <li>Subscribe to &ldquo;messages&rdquo; field</li>
-                </ol>
-                <p className="mt-1 text-muted-foreground">Your server must be publicly accessible (use ngrok for local dev).</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="flex gap-2">
-            <Input
-              readOnly
-              value={webhookUrl}
-              className="font-mono text-xs bg-muted"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={handleCopyWebhook}
-              className="shrink-0"
-            >
-              {copied ? (
-                <CheckIcon className="size-4 text-primary" />
-              ) : (
-                <CopyIcon className="size-4" />
-              )}
-            </Button>
-          </div>
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-4">
+          <p className="text-sm font-medium mb-1">Webhook URL &amp; Verify Token</p>
           <p className="text-xs text-muted-foreground">
-            Replace <code className="rounded bg-muted px-1 text-[11px]">your-domain.com</code> with your actual domain and <code className="rounded bg-muted px-1 text-[11px]">{"{agent_id}"}</code> with the agent ID after creation.
+            These will be auto-generated after you save the agent. You&apos;ll find them on the agent&apos;s detail page under Channel Configuration, along with step-by-step instructions to complete the Meta webhook setup.
           </p>
         </div>
       </>
@@ -667,20 +584,22 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="wa-phone">Phone Number</Label>
-                  <Input
-                    id="wa-phone"
-                    placeholder="+91 98765 43210"
-                    value={data.whatsapp.config.phoneNumber}
-                    onChange={(e) =>
-                      updateWhatsAppConfig({ phoneNumber: e.target.value })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    WhatsApp Business number registered with the BSP.
-                  </p>
-                </div>
+                {data.whatsapp.config.provider !== "meta_cloud" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="wa-phone">Phone Number</Label>
+                    <Input
+                      id="wa-phone"
+                      placeholder="+91 98765 43210"
+                      value={data.whatsapp.config.phoneNumber}
+                      onChange={(e) =>
+                        updateWhatsAppConfig({ phoneNumber: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      WhatsApp Business number registered with the BSP.
+                    </p>
+                  </div>
+                )}
 
                 {/* Provider-specific fields */}
                 <WhatsAppProviderFields
