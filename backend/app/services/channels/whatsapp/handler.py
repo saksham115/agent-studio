@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.conversation import Conversation, ConversationStatus
 from app.services.channels.whatsapp.types import NormalizedMessage
+from app.services.media_processor import MediaProcessor
 from app.services.orchestrator import ConversationOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class WhatsAppMessageHandler:
         self.orchestrator = ConversationOrchestrator(db)
 
     async def handle_incoming(
-        self, agent_id: uuid.UUID, message: NormalizedMessage
+        self, agent_id: uuid.UUID, message: NormalizedMessage, access_token: str = ""
     ) -> str:
         """Process an incoming WhatsApp message and return the agent's response.
 
@@ -80,23 +81,29 @@ class WhatsAppMessageHandler:
                 conversation.external_user_name = message.contact_name
                 await self.db.flush()
 
-        # -- 4. Handle non-text messages (MVP: log and acknowledge) ------------
-        if message.message_type != "text" and message.message_type != "button_reply":
+        # -- 4. Process media messages ------------------------------------------
+        content = message.content
+        if message.message_type not in ("text", "button_reply") and message.media_url and access_token:
             logger.info(
-                "Received non-text message type=%s from phone=%s (conversation=%s). "
-                "Processing content representation.",
+                "Processing media type=%s from phone=%s (conversation=%s)",
                 message.message_type,
                 message.sender_phone,
                 conversation_id,
             )
-            # For non-text messages we still process the content representation
-            # (e.g. "[Image received]", "[Voice message received]") so the agent
-            # can acknowledge it.
+            try:
+                processor = MediaProcessor(access_token, agent_id)
+                content = await processor.process_media(
+                    media_url=message.media_url,
+                    media_type=message.message_type,
+                    caption=message.caption,
+                )
+            except Exception:
+                logger.exception("Media processing failed, using fallback content")
 
         # -- 5. Process through orchestrator -----------------------------------
         try:
             response = await self.orchestrator.process_message(
-                conversation_id, message.content
+                conversation_id, content
             )
             logger.info(
                 "Orchestrator response for conversation=%s: %d chars",

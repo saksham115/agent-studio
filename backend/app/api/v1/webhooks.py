@@ -169,7 +169,7 @@ async def handle_whatsapp_webhook(
 
     # -- 5. Process through handler -------------------------------------------
     handler = WhatsAppMessageHandler(db)
-    response_text = await handler.handle_incoming(agent_id, message)
+    response_text = await handler.handle_incoming(agent_id, message, access_token=getattr(adapter, "access_token", ""))
 
     # -- 6. Send response back ------------------------------------------------
     send_result = await adapter.send_text(message.sender_phone, response_text)
