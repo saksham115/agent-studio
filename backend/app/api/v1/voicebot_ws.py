@@ -80,11 +80,38 @@ def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 8000) -> bytes:
     return buf.getvalue()
 
 
-def _wav_to_pcm(wav_bytes: bytes) -> bytes:
-    """Extract raw PCM data from WAV bytes (skip the 44-byte header)."""
-    if wav_bytes[:4] == b"RIFF" and len(wav_bytes) > 44:
-        return wav_bytes[44:]
-    return wav_bytes
+def _wav_to_pcm(wav_bytes: bytes, target_rate: int = 8000) -> bytes:
+    """Extract raw PCM from WAV, resample to target rate if needed."""
+    if wav_bytes[:4] != b"RIFF" or len(wav_bytes) <= 44:
+        return wav_bytes
+
+    # Parse WAV header to get sample rate
+    src_rate = struct.unpack("<I", wav_bytes[24:28])[0]
+    pcm_data = wav_bytes[44:]
+
+    logger.info("WAV info: src_rate=%d, target_rate=%d, pcm_size=%d", src_rate, target_rate, len(pcm_data))
+
+    if src_rate == target_rate:
+        return pcm_data
+
+    # Resample: simple linear interpolation
+    src_samples = struct.unpack(f"<{len(pcm_data) // 2}h", pcm_data)
+    ratio = src_rate / target_rate
+    out_len = int(len(src_samples) / ratio)
+    out_samples = []
+    for i in range(out_len):
+        src_idx = i * ratio
+        idx = int(src_idx)
+        frac = src_idx - idx
+        if idx + 1 < len(src_samples):
+            sample = int(src_samples[idx] * (1 - frac) + src_samples[idx + 1] * frac)
+        else:
+            sample = src_samples[idx]
+        out_samples.append(max(-32768, min(32767, sample)))
+
+    resampled = struct.pack(f"<{len(out_samples)}h", *out_samples)
+    logger.info("Resampled audio: %d→%dHz, %d→%d bytes", src_rate, target_rate, len(pcm_data), len(resampled))
+    return resampled
 
 
 def _chunk_audio(pcm_bytes: bytes, chunk_size: int = 3200) -> list[bytes]:
@@ -250,9 +277,9 @@ async def _start_conversation_and_greet(
         logger.exception("Failed to start voice conversation")
         return None
 
-    # Stream welcome audio back
+    # Stream welcome audio back (resample to match Exotel's expected rate)
     if welcome_audio:
-        pcm_data = _wav_to_pcm(welcome_audio)
+        pcm_data = _wav_to_pcm(welcome_audio, target_rate=sample_rate)
         await _stream_audio(websocket, pcm_data, stream_sid)
 
     await db.commit()
@@ -291,7 +318,7 @@ async def _process_audio_turn(
             "stream_sid": stream_sid,
         }))
 
-        pcm_data = _wav_to_pcm(response_audio)
+        pcm_data = _wav_to_pcm(response_audio, target_rate=sample_rate)
         await _stream_audio(websocket, pcm_data, stream_sid)
 
     await db.commit()
@@ -304,6 +331,7 @@ async def _stream_audio(
 ) -> None:
     """Stream PCM audio back to Exotel in properly sized chunks."""
     chunks = _chunk_audio(pcm_data)
+    logger.info("Streaming %d audio chunks (%d bytes total) to Exotel", len(chunks), len(pcm_data))
     for i, chunk in enumerate(chunks):
         msg = {
             "event": "media",
@@ -321,6 +349,7 @@ async def _stream_audio(
         "stream_sid": stream_sid,
         "mark": {"name": "response_end"},
     }))
+    logger.info("Finished streaming audio, mark sent")
 
 
 async def _finalize_conversation(db: AsyncSession, conversation_id: uuid.UUID) -> None:
