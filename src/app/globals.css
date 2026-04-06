@@ -93,23 +93,23 @@
 }
 
 .dark {
-  --background: oklch(0.08 0.015 280);
-  --foreground: oklch(0.96 0 0);
-  --card: oklch(0.12 0.015 280);
-  --card-foreground: oklch(0.96 0 0);
-  --popover: oklch(0.12 0.015 280);
-  --popover-foreground: oklch(0.96 0 0);
+  --background: #0a0a0f;
+  --foreground: #e4e4e8;
+  --card: #111116;
+  --card-foreground: #e4e4e8;
+  --popover: #111116;
+  --popover-foreground: #e4e4e8;
   --primary: oklch(0.87 0.2 165);
   --primary-foreground: oklch(0.1 0.02 165);
-  --secondary: oklch(0.15 0.015 280);
-  --secondary-foreground: oklch(0.9 0 0);
-  --muted: oklch(0.15 0.012 280);
-  --muted-foreground: oklch(0.6 0 0);
-  --accent: oklch(0.15 0.015 280);
-  --accent-foreground: oklch(0.9 0 0);
+  --secondary: #18181e;
+  --secondary-foreground: #e4e4e8;
+  --muted: #1a1a21;
+  --muted-foreground: #8b8b96;
+  --accent: #1a1a21;
+  --accent-foreground: #e4e4e8;
   --destructive: oklch(0.6 0.25 15);
-  --border: oklch(0.2 0.01 280);
-  --input: oklch(0.18 0.012 280);
+  --border: #27272f;
+  --input: #1e1e25;
   --ring: oklch(0.87 0.2 165);
   --success: oklch(0.87 0.2 165);
   --success-foreground: oklch(0.1 0.02 165);
@@ -120,13 +120,13 @@
   --chart-3: oklch(0.75 0.18 45);
   --chart-4: oklch(0.7 0.15 300);
   --chart-5: oklch(0.65 0.12 340);
-  --sidebar: oklch(0.07 0.015 280);
-  --sidebar-foreground: oklch(0.85 0 0);
+  --sidebar: #08080d;
+  --sidebar-foreground: #b0b0b8;
   --sidebar-primary: oklch(0.87 0.2 165);
   --sidebar-primary-foreground: oklch(0.1 0.02 165);
-  --sidebar-accent: oklch(0.13 0.015 280);
-  --sidebar-accent-foreground: oklch(0.95 0 0);
-  --sidebar-border: oklch(0.18 0.012 280);
+  --sidebar-accent: #141419;
+  --sidebar-accent-foreground: #e4e4e8;
+  --sidebar-border: #1e1e25;
   --sidebar-ring: oklch(0.87 0.2 165);
 }
 
@@ -152,4 +152,108 @@
   .btn-pill {
     @apply rounded-full;
   }
+}
+
+/* =========================================================
+   Cryptix-style grey mirror / glassmorphism theme
+   ========================================================= */
+
+/* Cards — gradient surface with frosted glass edge */
+.dark [data-slot="card"] {
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.02) 40%,
+    rgba(255, 255, 255, 0.04) 100%
+  ) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 4px 24px rgba(0, 0, 0, 0.4),
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+  backdrop-filter: blur(12px);
+}
+
+/* Card hover — slight lift */
+.dark [data-slot="card"]:hover {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Sidebar — darker with subtle gradient */
+.dark [data-slot="sidebar"] {
+  background: linear-gradient(
+    180deg,
+    rgba(15, 15, 20, 0.95) 0%,
+    rgba(10, 10, 15, 1) 100%
+  ) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Main content area — subtle radial glow behind content */
+.dark main,
+.dark [data-slot="sidebar-inset"] {
+  background:
+    radial-gradient(ellipse at 30% 0%, rgba(255, 255, 255, 0.02) 0%, transparent 60%),
+    var(--background) !important;
+}
+
+/* Table container glass effect */
+.dark [role="table"] {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* Table header row — frosted */
+.dark thead tr {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* Input fields — inset glass */
+.dark input,
+.dark textarea,
+.dark select {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.dark input:focus,
+.dark textarea:focus {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow:
+    inset 0 1px 4px rgba(0, 0, 0, 0.3),
+    0 0 0 2px rgba(var(--primary), 0.15);
+}
+
+/* Badge — glass pill */
+.dark [data-slot="badge"] {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+}
+
+/* Buttons — glass surface on outline variant */
+.dark button[data-variant="outline"] {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dark button[data-variant="outline"]:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Tabs — frosted underline variant */
+.dark [role="tablist"] {
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Separator lines */
+.dark [data-slot="separator"] {
+  background: rgba(255, 255, 255, 0.06) !important;
 }

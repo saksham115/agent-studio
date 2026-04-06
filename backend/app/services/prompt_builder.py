@@ -74,6 +74,9 @@ class PromptBuilder:
         # 1. Base system prompt -----------------------------------------
         base_prompt = (agent.system_prompt or "").strip()
         if base_prompt:
+            # Substitute template placeholders
+            base_prompt = base_prompt.replace("{{persona_name}}", agent.persona or "Agent")
+            base_prompt = base_prompt.replace("{{customer_name}}", agent.description or "the company")
             sections.append(base_prompt)
 
         # 2. Persona ----------------------------------------------------
