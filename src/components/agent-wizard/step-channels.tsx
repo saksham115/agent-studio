@@ -407,14 +407,9 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
                       <SelectItem value="manisha">Manisha (Female)</SelectItem>
                       <SelectItem value="vidya">Vidya (Female)</SelectItem>
                       <SelectItem value="arya">Arya (Female)</SelectItem>
-                      <SelectItem value="priya">Priya (Female)</SelectItem>
-                      <SelectItem value="shreya">Shreya (Female)</SelectItem>
                       <SelectItem value="abhilash">Abhilash (Male)</SelectItem>
                       <SelectItem value="karun">Karun (Male)</SelectItem>
                       <SelectItem value="hitesh">Hitesh (Male)</SelectItem>
-                      <SelectItem value="rahul">Rahul (Male)</SelectItem>
-                      <SelectItem value="amit">Amit (Male)</SelectItem>
-                      <SelectItem value="dev">Dev (Male)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">

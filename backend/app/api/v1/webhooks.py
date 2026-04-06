@@ -345,16 +345,19 @@ def _build_meta_adapter(
 # ==========================================================================
 
 
-@router.post("/voice/incoming")
-@router.post("/voice/{agent_id}/incoming")
+@router.api_route("/voice/incoming", methods=["GET", "POST"])
+@router.api_route("/voice/{agent_id}/incoming", methods=["GET", "POST"])
 async def handle_voice_incoming(
     request: Request,
     db: AsyncSession = Depends(get_db),
     agent_id: uuid.UUID | None = None,
 ) -> Response:
     """Handle an incoming voice call from Exotel."""
-    form_data = await request.form()
-    payload = dict(form_data)
+    if request.method == "GET":
+        payload = dict(request.query_params)
+    else:
+        form_data = await request.form()
+        payload = dict(form_data)
 
     logger.info("Voice incoming webhook received: agent_id=%s payload=%s", agent_id, payload)
 
@@ -573,11 +576,11 @@ async def _get_voice_config(db: AsyncSession, agent_id: uuid.UUID) -> tuple[str,
     channel = result.scalar_one_or_none()
 
     if channel and channel.config:
-        language = channel.config.get("language", "hi-IN")
-        speaker = channel.config.get("speaker", "meera")
+        language = channel.config.get("language") or channel.config.get("workingHoursStart") or "hi-IN"
+        speaker = channel.config.get("speaker") or channel.config.get("ttsVoice") or "anushka"
         return language, speaker
 
-    return "hi-IN", "meera"
+    return "hi-IN", "anushka"
 
 
 async def _get_voice_config_for_conversation(
@@ -594,7 +597,7 @@ async def _get_voice_config_for_conversation(
         _, speaker = await _get_voice_config(db, conversation.agent_id)
         return lang, speaker
 
-    return "hi-IN", "meera"
+    return "hi-IN", "anushka"
 
 
 async def _find_conversation_by_call_sid(
@@ -643,15 +646,51 @@ def _exoml_play_and_gather(
 ) -> Response:
     """Return ExoML that plays audio and gathers the next recording.
 
-    The response plays the synthesized audio, then records the caller's
-    next utterance and POSTs it to the ``action_url`` for processing.
+    Uploads the audio to MinIO and returns a presigned URL for Exotel
+    to fetch, then records the caller's next utterance.
     """
+    from app.services.storage import StorageService
+
+    # Upload audio to MinIO and get a presigned URL
+    audio_bytes = base64.b64decode(audio_base64)
+    storage = StorageService()
+    s3_key = f"voice/tts/{call_sid}/{uuid.uuid4().hex[:8]}.wav"
+    storage.upload_file(audio_bytes, s3_key, "audio/wav")
+    audio_url = storage.generate_presigned_url(s3_key, expires_in=300)
+
+    # For local MinIO, the presigned URL points to localhost which Exotel can't reach.
+    # Use the public URL to serve the audio instead.
+    from app.config import settings
+    public_base = settings.PUBLIC_API_URL.rstrip("/")
+    serve_url = f"{public_base}/api/v1/webhooks/voice/audio-file/{call_sid}/{s3_key.split('/')[-1]}"
+
+    # Store the s3_key in memory for serving
+    _audio_files[f"{call_sid}/{s3_key.split('/')[-1]}"] = s3_key
+
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         "<Response>\n"
-        f'  <Play type="audio/wav">{audio_base64}</Play>\n'
+        f'  <Play>{serve_url}</Play>\n'
         f'  <Record action="{action_url}?call_sid={call_sid}" '
         f'maxLength="30" timeout="5" finishOnKey="#"/>\n'
         "</Response>"
     )
     return Response(content=xml, media_type="application/xml")
+
+
+# In-memory map for serving audio files
+_audio_files: dict[str, str] = {}
+
+
+@router.get("/voice/audio-file/{call_sid}/{filename}")
+async def serve_voice_audio(call_sid: str, filename: str) -> Response:
+    """Serve TTS audio files to Exotel."""
+    key = f"{call_sid}/{filename}"
+    s3_key = _audio_files.get(key)
+    if not s3_key:
+        raise HTTPException(status_code=404, detail="Audio not found")
+
+    from app.services.storage import StorageService
+    storage = StorageService()
+    audio_bytes = storage.download_file(s3_key)
+    return Response(content=audio_bytes, media_type="audio/wav")
