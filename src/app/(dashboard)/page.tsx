@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/table"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
-import { dashboardApi, type DashboardOverview } from "@/lib/api"
+import { dashboardApi, conversationApi, type DashboardOverview } from "@/lib/api"
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -192,17 +192,21 @@ function DashboardSkeleton() {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardOverview | null>(null)
+  const [recentConvs, setRecentConvs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    dashboardApi
-      .overview()
-      .then((res) => {
+    Promise.all([
+      dashboardApi.overview(),
+      conversationApi.list({ page: 1 }),
+    ])
+      .then(([overview, convsRes]) => {
         if (!cancelled) {
-          setData(res)
+          setData(overview)
+          setRecentConvs(convsRes?.items ?? [])
           setError(null)
         }
       })
@@ -264,12 +268,33 @@ export default function DashboardPage() {
     },
   ]
 
-  // Charts need data we don't have from the overview endpoint yet — show empty
-  const conversationData: { date: string; voice: number; whatsapp: number; chatbot: number }[] = []
-  const funnelData: { stage: string; count: number; percent: number; fill: string }[] = []
+  // Conversations Over Time — use today's aggregate since we don't have daily data yet
+  const byChannel = data?.conversations_by_channel ?? {}
+  const today = new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+  const hasChannelData = Object.keys(byChannel).length > 0
+  const conversationData = hasChannelData
+    ? [{ date: today, voice: byChannel.voice ?? 0, whatsapp: byChannel.whatsapp ?? 0, chatbot: byChannel.chatbot ?? 0 }]
+    : []
 
-  // Recent conversations — not available from overview endpoint
-  const recentConversations: { id: string; contact: string; agent: string; channel: "Voice" | "WhatsApp" | "Chatbot"; stateReached: string; timeAgo: string }[] = []
+  // Conversation Funnel — from status breakdown
+  const byStatus = data?.conversations_by_status ?? {}
+  const funnelTotal = totalConversations || 1
+  const funnelData = [
+    { stage: "Active", count: byStatus.active ?? 0, percent: Math.round(((byStatus.active ?? 0) / funnelTotal) * 100), fill: "var(--chart-1)" },
+    { stage: "Completed", count: byStatus.completed ?? 0, percent: Math.round(((byStatus.completed ?? 0) / funnelTotal) * 100), fill: "var(--chart-2)" },
+    { stage: "Escalated", count: byStatus.escalated ?? 0, percent: Math.round(((byStatus.escalated ?? 0) / funnelTotal) * 100), fill: "var(--chart-3)" },
+    { stage: "Abandoned", count: byStatus.abandoned ?? 0, percent: Math.round(((byStatus.abandoned ?? 0) / funnelTotal) * 100), fill: "var(--chart-5)" },
+  ].filter((d) => d.count > 0)
+
+  // Recent conversations from API
+  const recentConversations = recentConvs.slice(0, 5).map((c: any) => ({
+    id: c.id,
+    contact: c.external_user_phone || c.external_user_name || "--",
+    agent: c.agent_name || "--",
+    channel: (c.channel_type === "whatsapp" ? "WhatsApp" : c.channel_type === "voice" ? "Voice" : "Chatbot") as "Voice" | "WhatsApp" | "Chatbot",
+    stateReached: c.current_state_name || "--",
+    timeAgo: c.started_at ? new Date(c.started_at).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "--",
+  }))
 
   // Map top agents from API response
   const topAgents = (data?.top_agents ?? []).map((a) => ({

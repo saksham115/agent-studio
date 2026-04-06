@@ -258,25 +258,13 @@ export default function AgentsPage() {
 
                 <CardContent className="flex-1 space-y-4">
                   {/* Stats Row */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">
-                        Conversations
-                      </p>
-                      <p className="text-lg font-semibold leading-none">
-                        {formatNumber((agent as any).conversation_count ?? 0)}
-                      </p>
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">
-                        Completion Rate
-                      </p>
-                      <p className="text-lg font-semibold leading-none">
-                        {(agent.completionRate ?? 0) > 0
-                          ? `${agent.completionRate}%`
-                          : "--"}
-                      </p>
-                    </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">
+                      Conversations
+                    </p>
+                    <p className="text-lg font-semibold leading-none">
+                      {formatNumber((agent as any).conversation_count ?? 0)}
+                    </p>
                   </div>
                 </CardContent>
 

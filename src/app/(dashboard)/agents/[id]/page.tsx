@@ -382,14 +382,6 @@ function OverviewTab({ agent, channels, conversations }: { agent: AgentResponse;
         </Card>
         <Card size="sm">
           <CardHeader>
-            <CardDescription>Completion Rate</CardDescription>
-            <CardTitle className="text-2xl">
-              {completionRate > 0 ? `${completionRate}%` : "--"}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card size="sm">
-          <CardHeader>
             <CardDescription>Active Conversations</CardDescription>
             <CardTitle className="text-2xl">
               {conversations.filter((c) => c.status === "active").length}
