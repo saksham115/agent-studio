@@ -47,7 +47,7 @@ class SarvamSTT:
     """
 
     STT_URL = "https://api.sarvam.ai/speech-to-text"
-    MODEL = "saarika:v2"
+    MODEL = "saarika:v2.5"
 
     def __init__(self, api_key: str | None = None) -> None:
         self.api_key = api_key or settings.SARVAM_API_KEY
@@ -97,6 +97,8 @@ class SarvamSTT:
                 files=files,
                 data=data,
             )
+            if response.status_code != 200:
+                logger.error("Sarvam STT error %d: %s", response.status_code, response.text)
             response.raise_for_status()
 
         result = response.json()
