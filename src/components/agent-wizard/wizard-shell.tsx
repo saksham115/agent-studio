@@ -170,9 +170,9 @@ const INITIAL_FORM_DATA: WizardFormData = {
       config: {
         phoneNumber: "",
         greetingMessage: "",
-        ttsVoice: "female_hindi",
-        workingHoursStart: "09:00",
-        workingHoursEnd: "18:00",
+        ttsVoice: "meera",
+        workingHoursStart: "hi-IN",
+        workingHoursEnd: "",
         transferNumber: "",
         callTimeout: "300",
         consentMessage: true,

@@ -392,21 +392,6 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
             <CardContent className="pt-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="voice-phone">Phone Number</Label>
-                  <Input
-                    id="voice-phone"
-                    placeholder="+91 98765 43210"
-                    value={data.voice.config.phoneNumber}
-                    onChange={(e) =>
-                      updateVoiceConfig({ phoneNumber: e.target.value })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    The number customers will call or receive calls from.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
                   <Label htmlFor="voice-tts">TTS Voice</Label>
                   <Select
                     value={data.voice.config.ttsVoice}
@@ -418,14 +403,45 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
                       <SelectValue placeholder="Select a voice" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="male_hindi">Male Hindi</SelectItem>
-                      <SelectItem value="female_hindi">Female Hindi</SelectItem>
-                      <SelectItem value="male_english">Male English</SelectItem>
-                      <SelectItem value="female_english">Female English</SelectItem>
+                      <SelectItem value="meera">Meera (Female, Hindi)</SelectItem>
+                      <SelectItem value="arvind">Arvind (Male, Hindi)</SelectItem>
+                      <SelectItem value="amol">Amol (Male, English)</SelectItem>
+                      <SelectItem value="amartya">Amartya (Male, Hindi)</SelectItem>
+                      <SelectItem value="diya">Diya (Female, English)</SelectItem>
+                      <SelectItem value="neel">Neel (Male, English)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Text-to-speech voice for the agent.
+                    Sarvam AI voice for text-to-speech. ExoPhone number is auto-assigned from Exotel.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="voice-language">Language</Label>
+                  <Select
+                    value={data.voice.config.workingHoursStart || "hi-IN"}
+                    onValueChange={(val) =>
+                      updateVoiceConfig({ workingHoursStart: val ?? "hi-IN" })
+                    }
+                  >
+                    <SelectTrigger id="voice-language" className="w-full">
+                      <SelectValue placeholder="Select language" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hi-IN">Hindi</SelectItem>
+                      <SelectItem value="en-IN">English (India)</SelectItem>
+                      <SelectItem value="bn-IN">Bengali</SelectItem>
+                      <SelectItem value="ta-IN">Tamil</SelectItem>
+                      <SelectItem value="te-IN">Telugu</SelectItem>
+                      <SelectItem value="mr-IN">Marathi</SelectItem>
+                      <SelectItem value="gu-IN">Gujarati</SelectItem>
+                      <SelectItem value="kn-IN">Kannada</SelectItem>
+                      <SelectItem value="ml-IN">Malayalam</SelectItem>
+                      <SelectItem value="pa-IN">Punjabi</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Primary language for speech recognition and synthesis.
                   </p>
                 </div>
 
@@ -440,45 +456,6 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
                     }
                     className="min-h-[80px]"
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="voice-hours-start">Working Hours Start</Label>
-                  <Input
-                    id="voice-hours-start"
-                    type="time"
-                    value={data.voice.config.workingHoursStart}
-                    onChange={(e) =>
-                      updateVoiceConfig({ workingHoursStart: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="voice-hours-end">Working Hours End</Label>
-                  <Input
-                    id="voice-hours-end"
-                    type="time"
-                    value={data.voice.config.workingHoursEnd}
-                    onChange={(e) =>
-                      updateVoiceConfig({ workingHoursEnd: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="voice-transfer">Transfer Number</Label>
-                  <Input
-                    id="voice-transfer"
-                    placeholder="+91 98765 43211"
-                    value={data.voice.config.transferNumber}
-                    onChange={(e) =>
-                      updateVoiceConfig({ transferNumber: e.target.value })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Number to transfer to when escalating to a human agent.
-                  </p>
                 </div>
 
                 <div className="space-y-2">
