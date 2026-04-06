@@ -246,18 +246,21 @@ async def start_call(
     exotel = ExotelClient()
     base_url = settings.PUBLIC_API_URL.rstrip("/")
 
-    # Use the ExoPhone from channel config, or fall back to a default
+    # Use the ExoPhone from channel config, or auto-fetch from Exotel
     config = channel.config or {}
     caller_id = config.get("phoneNumber") or channel.phone_number or ""
     if not caller_id:
-        raise HTTPException(status_code=400, detail="No ExoPhone number configured")
+        exophones = await exotel.list_exophones()
+        if not exophones:
+            raise HTTPException(status_code=400, detail="No ExoPhone numbers found in your Exotel account")
+        caller_id = exophones[0]
 
     call_result = await exotel.make_call(
         from_number=body.phone_number,
         to_number=caller_id,
         caller_id=caller_id,
-        callback_url=f"{base_url}/api/v1/webhooks/voice/status",
-        exoml_app_url=f"{base_url}/api/v1/webhooks/voice/incoming",
+        callback_url=f"{base_url}/api/v1/webhooks/voice/{agent_id}/status",
+        exoml_app_url=f"{base_url}/api/v1/webhooks/voice/{agent_id}/incoming",
     )
 
     return StartCallResponse(

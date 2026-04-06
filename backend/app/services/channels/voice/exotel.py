@@ -141,6 +141,31 @@ class ExotelClient:
             logger.error(error_msg)
             return CallResult(success=False, error=error_msg)
 
+    async def list_exophones(self) -> list[str]:
+        """Fetch all ExoPhone numbers from the Exotel account."""
+        if not self.api_key or not self.api_token:
+            raise ValueError("Exotel API credentials are not configured")
+
+        url = f"{self.base_url}/IncomingPhoneNumbers.json"
+        auth = (self.api_key, self.api_token)
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(url, auth=auth)
+                response.raise_for_status()
+
+            data = response.json()
+            # Handle both singular and plural response formats
+            numbers = data.get("IncomingPhoneNumbers", [])
+            if not numbers:
+                single = data.get("IncomingPhoneNumber")
+                if single and single.get("PhoneNumber"):
+                    return [single["PhoneNumber"]]
+            return [n.get("PhoneNumber", "") for n in numbers if n.get("PhoneNumber")]
+        except Exception:
+            logger.exception("Failed to fetch ExoPhones")
+            return []
+
     async def get_call_status(self, call_sid: str) -> dict:
         """Get the status of an ongoing or completed call.
 

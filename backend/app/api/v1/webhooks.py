@@ -346,30 +346,24 @@ def _build_meta_adapter(
 
 
 @router.post("/voice/incoming")
+@router.post("/voice/{agent_id}/incoming")
 async def handle_voice_incoming(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    agent_id: uuid.UUID | None = None,
 ) -> Response:
-    """Handle an incoming voice call from Exotel.
-
-    Exotel POSTs form data when a call arrives at the configured webhook
-    URL.  This endpoint:
-
-    1. Parses the Exotel payload into a :class:`CallEvent`.
-    2. Looks up the agent associated with the called phone number.
-    3. Starts a new conversation via :class:`VoiceCallHandler`.
-    4. Returns an XML (ExoML) response that plays the welcome TTS audio.
-    """
+    """Handle an incoming voice call from Exotel."""
     form_data = await request.form()
     payload = dict(form_data)
 
-    logger.info("Voice incoming webhook received: %s", payload)
+    logger.info("Voice incoming webhook received: agent_id=%s payload=%s", agent_id, payload)
 
     exotel_client = ExotelClient()
     call_event = exotel_client.parse_webhook(payload)
 
-    # Find the agent by the called phone number (To field)
-    agent_id = await _resolve_agent_by_phone(db, call_event.to_number)
+    # Resolve agent: use URL param, or fall back to phone number lookup
+    if agent_id is None:
+        agent_id = await _resolve_agent_by_phone(db, call_event.to_number)
     if agent_id is None:
         logger.warning(
             "No agent found for phone number %s (call_sid=%s)",
@@ -394,7 +388,7 @@ async def handle_voice_incoming(
         logger.error("Failed to start voice conversation: %s", exc)
         return _exoml_say("Sorry, the agent is not available right now. Goodbye.")
 
-    # Track this call
+    # Track this call — store agent_id too for audio callback
     _active_calls[call_event.call_sid] = conversation_id
 
     # Return ExoML that plays the welcome audio
@@ -402,7 +396,7 @@ async def handle_voice_incoming(
         audio_b64 = base64.b64encode(welcome_audio).decode("ascii")
         return _exoml_play_and_gather(
             audio_base64=audio_b64,
-            action_url="/api/v1/webhooks/voice/audio",
+            action_url=f"/api/v1/webhooks/voice/{agent_id}/audio",
             call_sid=call_event.call_sid,
         )
     else:
@@ -410,9 +404,11 @@ async def handle_voice_incoming(
 
 
 @router.post("/voice/status")
+@router.post("/voice/{agent_id}/status")
 async def handle_voice_status(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    agent_id: uuid.UUID | None = None,
 ) -> dict:
     """Handle Exotel call status callbacks.
 
@@ -445,9 +441,11 @@ async def handle_voice_status(
 
 
 @router.post("/voice/audio")
+@router.post("/voice/{agent_id}/audio")
 async def handle_voice_audio(
     request: Request,
     db: AsyncSession = Depends(get_db),
+    agent_id: uuid.UUID | None = None,
 ) -> Response:
     """Handle audio input during a voice call.
 
@@ -522,9 +520,10 @@ async def handle_voice_audio(
 
     if response_audio:
         audio_b64 = base64.b64encode(response_audio).decode("ascii")
+        action_url = f"/api/v1/webhooks/voice/{agent_id}/audio" if agent_id else "/api/v1/webhooks/voice/audio"
         return _exoml_play_and_gather(
             audio_base64=audio_b64,
-            action_url="/api/v1/webhooks/voice/audio",
+            action_url=action_url,
             call_sid=call_sid,
         )
     else:
