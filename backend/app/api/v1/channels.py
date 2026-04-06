@@ -47,7 +47,7 @@ async def update_channel_config(
             config_data["verify_token"] = secrets.token_urlsafe(32)
 
         # Normalize camelCase keys from the frontend wizard to snake_case
-        # so the webhook handler can find them
+        # and remove the camelCase originals
         key_map = {
             "metaAccessToken": "access_token",
             "metaPhoneNumberId": "phone_number_id",
@@ -58,8 +58,10 @@ async def update_channel_config(
             "gupshupAppName": "app_name",
         }
         for camel, snake in key_map.items():
-            if camel in config_data and config_data[camel]:
-                config_data[snake] = config_data[camel]
+            if camel in config_data:
+                if config_data[camel]:
+                    config_data[snake] = config_data[camel]
+                del config_data[camel]
 
     # Check if channel already exists
     stmt = select(Channel).where(
@@ -91,6 +93,7 @@ async def update_channel_config(
         db.add(channel)
 
     await db.flush()
+    await db.refresh(channel)
 
     return ChannelResponse.model_validate(channel)
 

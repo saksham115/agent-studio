@@ -268,12 +268,28 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
 
         // Build channels form state from saved channel data
         const channelsState = { ...INITIAL_FORM_DATA.channels };
+        // Map snake_case keys back to camelCase for form fields
+        const snakeToCamel: Record<string, string> = {
+          access_token: "metaAccessToken",
+          phone_number_id: "metaPhoneNumberId",
+          business_account_id: "metaBusinessAccountId",
+          app_secret: "metaAppSecret",
+          api_key: "gupshupApiKey",
+          app_name: "gupshupAppName",
+        };
         for (const ch of channels) {
           const type = ch.channel_type as "voice" | "whatsapp" | "chatbot";
           if (channelsState[type]) {
+            const savedConfig = { ...(ch.config || {}) };
+            // Reverse-map snake_case keys to camelCase for form
+            for (const [snake, camel] of Object.entries(snakeToCamel)) {
+              if (savedConfig[snake] && !savedConfig[camel]) {
+                savedConfig[camel] = savedConfig[snake];
+              }
+            }
             channelsState[type] = {
               enabled: true,
-              config: { ...channelsState[type].config, ...(ch.config || {}) },
+              config: { ...channelsState[type].config, ...savedConfig },
             };
           }
         }
@@ -364,9 +380,10 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
 
       // Save channel configurations
       for (const [channelType, channelData] of Object.entries(formData.channels)) {
+        console.log(`[WIZARD] Channel ${channelType}: enabled=${channelData.enabled}`, channelData.config);
         if (channelData.enabled) {
           savePromises.push(
-            channelApi.update(agentId, channelType, channelData.config)
+            channelApi.update(agentId!, channelType, channelData.config)
           );
         }
       }

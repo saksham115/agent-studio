@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -118,6 +118,7 @@ export default function ConversationDetailPage() {
   const [expandedActions, setExpandedActions] = useState<Set<string>>(
     new Set()
   );
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,10 +142,28 @@ export default function ConversationDetailPage() {
     }
 
     load();
+
+    // Poll every 5 seconds for new messages while conversation is active
+    const interval = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const data = await conversationApi.get(conversationId);
+        if (!cancelled) setConversationData(data);
+      } catch {
+        // Silently ignore poll errors
+      }
+    }, 5000);
+
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [conversationId]);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversationData?.messages?.length]);
 
   const toggleAction = (actionId: string) => {
     setExpandedActions((prev) => {
@@ -298,6 +317,7 @@ export default function ConversationDetailPage() {
                   </div>
                 );
               })}
+              <div ref={messagesEndRef} />
             </div>
             )}
           </ScrollArea>

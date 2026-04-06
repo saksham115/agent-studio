@@ -132,7 +132,8 @@ async def handle_whatsapp_webhook(
         logger.warning("Failed to parse webhook JSON for agent=%s", agent_id)
         return JSONResponse(content={"status": "error", "detail": "Invalid JSON"}, status_code=400)
 
-    logger.debug("WhatsApp webhook payload for agent=%s: %s", agent_id, payload)
+    print(f"[WEBHOOK] agent={agent_id} type={payload.get('object', '?')} entries={len(payload.get('entry', []))}", flush=True)
+    logger.info("WhatsApp webhook payload for agent=%s: %s", agent_id, payload)
 
     # -- 2. Look up channel config --------------------------------------------
     channel, wa_provider = await _load_whatsapp_channel(db, agent_id)
@@ -317,13 +318,13 @@ def _build_meta_adapter(
         verify_token = wa_provider.webhook_verify_token
 
     if not access_token:
-        access_token = config.get("access_token") or config.get("metaAccessToken") or ""
+        access_token = config.get("access_token", "")
     if not phone_number_id:
-        phone_number_id = config.get("phone_number_id") or config.get("metaPhoneNumberId") or ""
+        phone_number_id = config.get("phone_number_id", "")
     if not app_secret:
-        app_secret = config.get("app_secret") or config.get("metaAppSecret")
+        app_secret = config.get("app_secret")
     if not verify_token:
-        verify_token = config.get("verify_token") or config.get("metaVerifyToken")
+        verify_token = config.get("verify_token")
 
     if not access_token:
         logger.error(

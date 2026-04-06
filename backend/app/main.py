@@ -1,3 +1,5 @@
+import logging
+import sys
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 
@@ -6,6 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api.v1.router import v1_router
+
+# Configure app loggers — uvicorn overrides basicConfig, so set explicitly
+_log_handler = logging.StreamHandler(sys.stderr)
+_log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+logging.getLogger("app").setLevel(logging.INFO)
+logging.getLogger("app").addHandler(_log_handler)
 
 
 @asynccontextmanager
