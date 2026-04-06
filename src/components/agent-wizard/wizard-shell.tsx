@@ -170,7 +170,7 @@ const INITIAL_FORM_DATA: WizardFormData = {
       config: {
         phoneNumber: "",
         greetingMessage: "",
-        ttsVoice: "meera",
+        ttsVoice: "anushka",
         workingHoursStart: "hi-IN",
         workingHoursEnd: "",
         transferNumber: "",

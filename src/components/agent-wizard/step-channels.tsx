@@ -403,12 +403,18 @@ export function StepChannels({ data, onChange }: StepChannelsProps) {
                       <SelectValue placeholder="Select a voice" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="meera">Meera (Female, Hindi)</SelectItem>
-                      <SelectItem value="arvind">Arvind (Male, Hindi)</SelectItem>
-                      <SelectItem value="amol">Amol (Male, English)</SelectItem>
-                      <SelectItem value="amartya">Amartya (Male, Hindi)</SelectItem>
-                      <SelectItem value="diya">Diya (Female, English)</SelectItem>
-                      <SelectItem value="neel">Neel (Male, English)</SelectItem>
+                      <SelectItem value="anushka">Anushka (Female)</SelectItem>
+                      <SelectItem value="manisha">Manisha (Female)</SelectItem>
+                      <SelectItem value="vidya">Vidya (Female)</SelectItem>
+                      <SelectItem value="arya">Arya (Female)</SelectItem>
+                      <SelectItem value="priya">Priya (Female)</SelectItem>
+                      <SelectItem value="shreya">Shreya (Female)</SelectItem>
+                      <SelectItem value="abhilash">Abhilash (Male)</SelectItem>
+                      <SelectItem value="karun">Karun (Male)</SelectItem>
+                      <SelectItem value="hitesh">Hitesh (Male)</SelectItem>
+                      <SelectItem value="rahul">Rahul (Male)</SelectItem>
+                      <SelectItem value="amit">Amit (Male)</SelectItem>
+                      <SelectItem value="dev">Dev (Male)</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
