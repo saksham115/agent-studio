@@ -126,6 +126,7 @@ class ExotelClient:
                 response.raise_for_status()
 
             data = response.json()
+            print(f"[EXOTEL] make_call response: {data}", flush=True)
             call_data = data.get("Call", {})
             call_sid = call_data.get("Sid", "")
 
@@ -140,6 +141,42 @@ class ExotelClient:
             error_msg = f"Exotel request failed: {exc}"
             logger.error(error_msg)
             return CallResult(success=False, error=error_msg)
+
+    async def update_exophone_webhook(self, phone_number: str, voice_url: str) -> bool:
+        """Update an ExoPhone's voice URL to point to our webhook."""
+        if not self.api_key or not self.api_token:
+            return False
+
+        # First, get the ExoPhone SID
+        url = f"{self.base_url}/IncomingPhoneNumbers.json"
+        auth = (self.api_key, self.api_token)
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url, auth=auth)
+                resp.raise_for_status()
+                data = resp.json()
+
+                # Find the SID for this phone number
+                single = data.get("IncomingPhoneNumber")
+                if single and single.get("PhoneNumber") == phone_number:
+                    phone_sid = single["Sid"]
+                else:
+                    return False
+
+                # Update the voice URL
+                update_url = f"{self.base_url}/IncomingPhoneNumbers/{phone_sid}.json"
+                update_resp = await client.put(
+                    update_url,
+                    data={"VoiceUrl": voice_url},
+                    auth=auth,
+                )
+                update_resp.raise_for_status()
+                logger.info("Updated ExoPhone %s voice URL to %s", phone_number, voice_url)
+                return True
+        except Exception:
+            logger.exception("Failed to update ExoPhone webhook")
+            return False
 
     async def list_exophones(self) -> list[str]:
         """Fetch all ExoPhone numbers from the Exotel account."""

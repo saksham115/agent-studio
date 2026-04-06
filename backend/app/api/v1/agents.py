@@ -255,12 +255,15 @@ async def start_call(
             raise HTTPException(status_code=400, detail="No ExoPhone numbers found in your Exotel account")
         caller_id = exophones[0]
 
+    # Configure the ExoPhone to hit our webhook when the call connects
+    incoming_url = f"{base_url}/api/v1/webhooks/voice/{agent_id}/incoming"
+    await exotel.update_exophone_webhook(caller_id, incoming_url)
+
     call_result = await exotel.make_call(
         from_number=body.phone_number,
         to_number=caller_id,
         caller_id=caller_id,
         callback_url=f"{base_url}/api/v1/webhooks/voice/{agent_id}/status",
-        exoml_app_url=f"{base_url}/api/v1/webhooks/voice/{agent_id}/incoming",
     )
 
     return StartCallResponse(
