@@ -107,6 +107,8 @@ async def voicebot_websocket(websocket: WebSocket, agent_id: str):
     """Handle Exotel Voicebot bidirectional audio WebSocket."""
     await websocket.accept()
 
+    import time as _time
+
     call_sid = ""
     stream_sid = ""
     sample_rate = 8000
@@ -114,6 +116,7 @@ async def voicebot_websocket(websocket: WebSocket, agent_id: str):
     silence_count = 0
     conversation_id: uuid.UUID | None = None
     processing = False
+    call_start_time = _time.time()
 
     logger.info("Voicebot WebSocket connected for agent=%s", agent_id)
 
@@ -139,12 +142,17 @@ async def voicebot_websocket(websocket: WebSocket, agent_id: str):
                     call_sid, from_number, stream_sid, sample_rate,
                 )
 
-                # Start conversation and send welcome audio
-                async with async_session_factory() as db:
-                    conversation_id = await _start_conversation_and_greet(
-                        websocket, db, agent_id, call_sid, from_number,
-                        stream_sid, sample_rate,
-                    )
+                # Start conversation and send welcome audio in background
+                # so the WebSocket loop keeps processing messages
+                async def _greet():
+                    nonlocal conversation_id
+                    async with async_session_factory() as db:
+                        conversation_id = await _start_conversation_and_greet(
+                            websocket, db, agent_id, call_sid, from_number,
+                            stream_sid, sample_rate,
+                        )
+
+                asyncio.create_task(_greet())
 
             elif event == "media":
                 if processing:
@@ -172,15 +180,24 @@ async def voicebot_websocket(websocket: WebSocket, agent_id: str):
                     silence_count = 0
 
                     if conversation_id:
-                        async with async_session_factory() as db:
-                            await _process_audio_turn(
-                                websocket, db, conversation_id, agent_id,
-                                audio_data, stream_sid, sample_rate,
-                            )
-                    processing = False
+                        async def _process(data: bytes, conv_id: uuid.UUID):
+                            nonlocal processing
+                            try:
+                                async with async_session_factory() as db:
+                                    await _process_audio_turn(
+                                        websocket, db, conv_id, agent_id,
+                                        data, stream_sid, sample_rate,
+                                    )
+                            finally:
+                                processing = False
+
+                        asyncio.create_task(_process(audio_data, conversation_id))
+                    else:
+                        processing = False
 
             elif event == "stop":
-                logger.info("Voicebot call ended: call_sid=%s", call_sid)
+                stop_reason = msg.get("stop", {}).get("reason", "unknown")
+                logger.info("Voicebot call ended: call_sid=%s reason=%s", call_sid, stop_reason)
                 # Finalize conversation
                 if conversation_id:
                     async with async_session_factory() as db:
