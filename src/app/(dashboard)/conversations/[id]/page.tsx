@@ -112,7 +112,7 @@ export default function ConversationDetailPage() {
   const params = useParams();
   const conversationId = params.id as string;
 
-  const [conversationData, setConversationData] = useState<ConversationDetail | null>(null);
+  const [conversationData, setConversationData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedActions, setExpandedActions] = useState<Set<string>>(
@@ -486,7 +486,7 @@ export default function ConversationDetailPage() {
                                       {key}:
                                     </span>
                                     <span className="font-mono break-all">
-                                      {value}
+                                      {String(value)}
                                     </span>
                                   </div>
                                 )

@@ -74,6 +74,10 @@ export interface DashboardOverview {
   guardrail_triggers: number;
   conversations_today: number;
   messages_today: number;
+  conversations_by_status?: Record<string, number>;
+  avg_messages_per_conversation?: number;
+  conversations_by_channel?: Record<string, number>;
+  top_agents?: Array<{ name: string; conversation_count: number }>;
 }
 
 export interface DashboardTimeSeriesPoint {
