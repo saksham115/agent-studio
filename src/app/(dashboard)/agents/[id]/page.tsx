@@ -23,6 +23,7 @@ import {
   Sparkles,
   Copy,
   CheckCircle2,
+  Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -55,7 +56,7 @@ import {
   type AgentResponse,
 } from "@/lib/api";
 
-type AgentStatus = "active" | "draft" | "paused";
+type AgentStatus = "active" | "draft" | "published" | "paused" | "archived";
 type Channel = "voice" | "whatsapp" | "chatbot";
 
 interface ApiKey {
@@ -71,7 +72,7 @@ interface ConversationRow {
   id: string;
   phoneOrChannel: string;
   channel: Channel;
-  status: "completed" | "dropped" | "escalated" | "in-progress";
+  status: string;
   duration: string;
   startedAt: string;
   currentState: string;
@@ -81,6 +82,11 @@ const statusConfig: Record<AgentStatus, { label: string; className: string }> =
   {
     active: {
       label: "Active",
+      className:
+        "bg-primary/15 text-primary",
+    },
+    published: {
+      label: "Published",
       className:
         "bg-primary/15 text-primary",
     },
@@ -94,6 +100,11 @@ const statusConfig: Record<AgentStatus, { label: string; className: string }> =
       className:
         "bg-warning/15 text-warning",
     },
+    archived: {
+      label: "Archived",
+      className:
+        "bg-muted text-muted-foreground",
+    },
   };
 
 const channelConfig: Record<Channel, { icon: typeof Phone; label: string }> = {
@@ -102,31 +113,26 @@ const channelConfig: Record<Channel, { icon: typeof Phone; label: string }> = {
   chatbot: { icon: Globe, label: "Chatbot" },
 };
 
-const convStatusConfig: Record<
-  ConversationRow["status"],
-  { label: string; className: string }
-> = {
+const convStatusConfig: Record<string, { label: string; className: string }> = {
+  active: {
+    label: "Active",
+    className: "bg-chart-2/15 text-chart-2",
+  },
   completed: {
     label: "Completed",
-    className:
-      "bg-primary/15 text-primary",
-  },
-  dropped: {
-    label: "Dropped",
-    className:
-      "bg-destructive/15 text-destructive",
+    className: "bg-primary/15 text-primary",
   },
   escalated: {
     label: "Escalated",
-    className:
-      "bg-warning/15 text-warning",
+    className: "bg-warning/15 text-warning",
   },
-  "in-progress": {
-    label: "In Progress",
-    className:
-      "bg-chart-2/15 text-chart-2",
+  abandoned: {
+    label: "Abandoned",
+    className: "bg-destructive/15 text-destructive",
   },
 };
+
+const defaultConvStatus = { label: "Unknown", className: "bg-muted text-muted-foreground" };
 
 function formatNumber(n: number): string {
   if (n >= 1000) {
@@ -175,8 +181,57 @@ function DetailSkeleton() {
 // Sub-tab components
 // ---------------------------------------------------------------------------
 
-function OverviewTab({ agent }: { agent: AgentResponse }) {
+function CopyableField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        {label}
+      </p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 text-xs bg-muted px-2.5 py-1.5 rounded font-mono break-all border border-border/50">
+          {value}
+        </code>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => {
+            navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
+        >
+          {copied ? (
+            <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "--";
+  try {
+    return new Date(dateStr).toLocaleDateString("en-IN", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return "--";
+  }
+}
+
+function OverviewTab({ agent, channels, conversations }: { agent: AgentResponse; channels: any[]; conversations: ConversationRow[] }) {
   const status = statusConfig[(agent.status as AgentStatus) ?? "draft"];
+  const whatsappChannel = channels.find((ch: any) => ch.channel_type === "whatsapp");
+  const channelTypes = channels.map((ch: any) => ch.channel_type as Channel);
+  const totalConvs = conversations.length;
+  const completedConvs = conversations.filter((c) => c.status === "completed").length;
+  const completionRate = totalConvs > 0 ? Math.round((completedConvs / totalConvs) * 100) : 0;
 
   return (
     <div className="space-y-6">
@@ -198,13 +253,7 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Persona
               </p>
-              <p className="text-sm font-semibold">{agent.persona}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Customer
-              </p>
-              <p className="text-sm font-semibold">{agent.customer}</p>
+              <p className="text-sm font-semibold">{agent.persona || "--"}</p>
             </div>
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -220,7 +269,7 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
               </p>
               <div className="flex items-center gap-1.5 text-sm">
                 <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                {agent.createdAt}
+                {formatDate(agent.created_at)}
               </div>
             </div>
             <div className="space-y-1">
@@ -229,7 +278,7 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
               </p>
               <div className="flex items-center gap-1.5 text-sm">
                 <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                {agent.updatedAt ?? "--"}
+                {formatDate(agent.updated_at)}
               </div>
             </div>
             <div className="space-y-1">
@@ -243,20 +292,12 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
             </div>
             <div className="space-y-1">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Tone
-              </p>
-              <div className="flex items-center gap-1.5 text-sm">
-                <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-                {agent.tone ?? "--"}
-              </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Channels
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {(agent.channels ?? []).map((ch) => {
-                  const config = channelConfig[ch as Channel];
+                {channelTypes.length === 0 && <span className="text-sm text-muted-foreground">--</span>}
+                {channelTypes.map((ch) => {
+                  const config = channelConfig[ch];
                   if (!config) return null;
                   const Icon = config.icon;
                   return (
@@ -279,11 +320,55 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
               System Prompt Preview
             </p>
             <p className="text-sm text-muted-foreground leading-relaxed rounded-md bg-muted/50 p-3 border border-border/50">
-              {agent.systemPromptPreview ?? agent.systemPrompt ?? "Not configured"}
+              {agent.system_prompt
+                ? (agent.system_prompt.length > 300
+                    ? agent.system_prompt.slice(0, 300) + "..."
+                    : agent.system_prompt)
+                : "Not configured"}
             </p>
           </div>
         </CardContent>
       </Card>
+
+      {/* WhatsApp Channel Configuration */}
+      {whatsappChannel && (whatsappChannel.webhook_url || whatsappChannel.config?.verify_token) && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <MessageCircle className="h-4 w-4 text-primary" />
+              <CardTitle>WhatsApp Webhook Configuration</CardTitle>
+            </div>
+            <CardDescription>
+              Use these values in your Meta App Dashboard to complete the webhook setup
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {whatsappChannel.webhook_url && (
+              <CopyableField
+                label="Webhook URL"
+                value={whatsappChannel.webhook_url}
+              />
+            )}
+            {whatsappChannel.config?.verify_token && (
+              <CopyableField
+                label="Verify Token"
+                value={whatsappChannel.config.verify_token}
+              />
+            )}
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+              <p className="text-xs font-medium mb-1.5">Setup Instructions</p>
+              <ol className="text-xs text-muted-foreground space-y-1 list-decimal pl-3.5">
+                <li>Go to your Meta App Dashboard &rarr; WhatsApp &rarr; Configuration</li>
+                <li>Click &ldquo;Edit&rdquo; next to the Webhook field</li>
+                <li>Paste the <strong>Webhook URL</strong> above into the Callback URL field</li>
+                <li>Paste the <strong>Verify Token</strong> above into the Verify Token field</li>
+                <li>Click &ldquo;Verify and Save&rdquo;</li>
+                <li>Subscribe to the <code className="bg-muted px-1 rounded">messages</code> webhook field</li>
+              </ol>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Performance Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -291,7 +376,7 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
           <CardHeader>
             <CardDescription>Total Conversations</CardDescription>
             <CardTitle className="text-2xl">
-              {formatNumber(agent.conversations ?? 0)}
+              {formatNumber(totalConvs)}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -299,23 +384,23 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
           <CardHeader>
             <CardDescription>Completion Rate</CardDescription>
             <CardTitle className="text-2xl">
-              {(agent.completionRate ?? 0) > 0 ? `${agent.completionRate}%` : "--"}
+              {completionRate > 0 ? `${completionRate}%` : "--"}
             </CardTitle>
           </CardHeader>
         </Card>
         <Card size="sm">
           <CardHeader>
-            <CardDescription>Avg. Conversation Length</CardDescription>
+            <CardDescription>Active Conversations</CardDescription>
             <CardTitle className="text-2xl">
-              {agent.avgConversationLength ?? "--"}
+              {conversations.filter((c) => c.status === "active").length}
             </CardTitle>
           </CardHeader>
         </Card>
         <Card size="sm">
           <CardHeader>
-            <CardDescription>Guardrail Triggers</CardDescription>
+            <CardDescription>Total Messages</CardDescription>
             <CardTitle className="text-2xl">
-              {agent.guardrailTriggers ?? 0}
+              {formatNumber(conversations.reduce((sum, c) => sum + ((c as any).messageCount ?? 0), 0))}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -327,6 +412,7 @@ function OverviewTab({ agent }: { agent: AgentResponse }) {
 function ConfigurationTab({
   agent,
   configData,
+  channels,
 }: {
   agent: AgentResponse;
   configData: {
@@ -335,11 +421,13 @@ function ConfigurationTab({
     kbDocsCount: number;
     guardrailsCount: number;
   };
+  channels: any[];
 }) {
+  const channelTypes = channels.map((ch: any) => ch.channel_type as Channel);
   const configSections = [
     {
       title: "Identity & System Prompt",
-      description: `Persona: ${agent.persona} | Tone: ${agent.tone ?? "--"} | Languages: ${(agent.languages ?? []).join(", ") || "--"}`,
+      description: `Persona: ${agent.persona || "--"} | Languages: ${(agent.languages ?? []).join(", ") || "--"}`,
       icon: Bot,
       detail: "Fully configured",
       color: "text-chart-2",
@@ -367,11 +455,11 @@ function ConfigurationTab({
     },
     {
       title: "Channels",
-      description: (agent.channels ?? [])
-        .map((ch) => channelConfig[ch as Channel]?.label ?? ch)
+      description: channelTypes
+        .map((ch) => channelConfig[ch]?.label ?? ch)
         .join(", ") || "None",
       icon: Globe,
-      detail: `${(agent.channels ?? []).length} channels`,
+      detail: `${channelTypes.length} channels`,
       color: "text-chart-2",
     },
     {
@@ -460,11 +548,11 @@ function ConversationsTab({
             </TableHeader>
             <TableBody>
               {conversationsData.map((conv) => {
-                const chConfig = channelConfig[conv.channel];
+                const chConfig = channelConfig[conv.channel] ?? channelConfig.chatbot;
                 const ChIcon = chConfig.icon;
-                const convStatus = convStatusConfig[conv.status];
+                const convStatus = convStatusConfig[conv.status] ?? defaultConvStatus;
                 return (
-                  <TableRow key={conv.id}>
+                  <TableRow key={conv.id} className="cursor-pointer hover:bg-muted/50" onClick={() => window.location.href = `/conversations/${(conv as any).fullId}`}>
                     <TableCell className="font-mono text-xs">
                       {conv.id}
                     </TableCell>
@@ -623,6 +711,8 @@ export default function AgentDetailPage() {
     guardrailsCount: 0,
   });
   const [conversationsData, setConversationsData] = useState<ConversationRow[]>([]);
+  const [channelsData, setChannelsData] = useState<any[]>([]);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -650,7 +740,10 @@ export default function AgentDetailPage() {
 
         const actionsData = actionsRes.status === "fulfilled" ? actionsRes.value : [];
         const statesData = statesRes.status === "fulfilled" ? statesRes.value : {};
+        const channelsList = channelsRes.status === "fulfilled" ? (channelsRes.value?.items ?? []) : [];
         const guardrailsData = guardrailsRes.status === "fulfilled" ? guardrailsRes.value : [];
+
+        setChannelsData(channelsList);
 
         setConfigData({
           actionsCount: agentData.actionsCount ?? (Array.isArray(actionsData) ? actionsData.length : (actionsData?.items?.length ?? 0)),
@@ -664,13 +757,15 @@ export default function AgentDetailPage() {
           const convItems = convsRes.value?.items ?? (Array.isArray(convsRes.value) ? convsRes.value : []);
           setConversationsData(
             convItems.map((c: any) => ({
-              id: c.id,
-              phoneOrChannel: c.contact ?? c.contactName ?? "--",
-              channel: c.channel ?? "chatbot",
-              status: c.status ?? "completed",
-              duration: c.duration ?? "--",
-              startedAt: c.startedAt ?? c.startedRelative ?? "--",
-              currentState: c.currentState ?? "--",
+              id: c.id?.slice(0, 8) ?? "--",
+              phoneOrChannel: c.external_user_phone ?? c.external_user_name ?? "--",
+              fullId: c.id,
+              channel: c.channel_type ?? "chatbot",
+              status: c.status ?? "active",
+              duration: "--",
+              startedAt: formatDate(c.started_at ?? c.created_at),
+              currentState: c.current_state_name ?? "--",
+              messageCount: c.message_count ?? 0,
             }))
           );
         }
@@ -739,15 +834,37 @@ export default function AgentDetailPage() {
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              {agent.persona} &middot; {agent.customer}
+              {agent.persona}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Button variant="outline" size="sm">
-            <Settings className="h-3.5 w-3.5 mr-1.5" />
-            Edit Agent
-          </Button>
+          {agent.status === "draft" && (
+            <Button
+              size="sm"
+              disabled={publishing}
+              onClick={async () => {
+                setPublishing(true);
+                try {
+                  await agentApi.publish(agentId);
+                  setAgent({ ...agent, status: "published" });
+                } catch (err: any) {
+                  alert(err.message || "Failed to publish");
+                } finally {
+                  setPublishing(false);
+                }
+              }}
+            >
+              <Rocket className="h-3.5 w-3.5 mr-1.5" />
+              {publishing ? "Publishing..." : "Publish"}
+            </Button>
+          )}
+          <Link href={`/agents/${agentId}/edit`}>
+            <Button variant="outline" size="sm">
+              <Settings className="h-3.5 w-3.5 mr-1.5" />
+              Edit Agent
+            </Button>
+          </Link>
           <Button variant="ghost" size="icon-sm">
             <MoreVertical className="h-4 w-4" />
           </Button>
@@ -776,11 +893,11 @@ export default function AgentDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
-          <OverviewTab agent={agent} />
+          <OverviewTab agent={agent} channels={channelsData} conversations={conversationsData} />
         </TabsContent>
 
         <TabsContent value="configuration" className="mt-4">
-          <ConfigurationTab agent={agent} configData={configData} />
+          <ConfigurationTab agent={agent} configData={configData} channels={channelsData} />
         </TabsContent>
 
         <TabsContent value="conversations" className="mt-4">

@@ -50,6 +50,18 @@ services:
       timeout: 5s
       retries: 5
 
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: agent_studio_pgweb
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      PGWEB_DATABASE_URL: postgres://postgres:postgres@postgres:5432/agent_studio?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Create default bucket on startup
   minio-init:
     image: minio/mc:latest

@@ -33,7 +33,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { agentApi, type AgentResponse } from "@/lib/api";
 
-type AgentStatus = "active" | "draft" | "paused";
+type AgentStatus = "active" | "draft" | "published" | "paused" | "archived";
 type Channel = "voice" | "whatsapp" | "chatbot";
 
 const channelConfig: Record<Channel, { icon: typeof Phone; label: string }> = {
@@ -48,18 +48,23 @@ const statusConfig: Record<
 > = {
   active: {
     label: "Active",
-    className:
-      "bg-primary/15 text-primary",
+    className: "bg-primary/15 text-primary",
+  },
+  published: {
+    label: "Published",
+    className: "bg-primary/15 text-primary",
   },
   draft: {
     label: "Draft",
-    className:
-      "bg-muted text-muted-foreground",
+    className: "bg-muted text-muted-foreground",
   },
   paused: {
     label: "Paused",
-    className:
-      "bg-warning/15 text-warning dark:text-warning",
+    className: "bg-warning/15 text-warning dark:text-warning",
+  },
+  archived: {
+    label: "Archived",
+    className: "bg-muted text-muted-foreground",
   },
 };
 
@@ -127,11 +132,7 @@ export default function AgentsPage() {
       });
       const items = res.items ?? res;
       setAgents(Array.isArray(items) ? items : []);
-      // Derive unique customer names for the filter dropdown
-      const uniqueCustomers = Array.from(
-        new Set((Array.isArray(items) ? items : []).map((a: AgentResponse) => a.customer).filter(Boolean))
-      );
-      setCustomers(uniqueCustomers);
+      setCustomers([]);
     } catch (err: any) {
       console.error("Failed to load agents:", err);
       setError(err.message);
@@ -149,9 +150,7 @@ export default function AgentsPage() {
   }, [fetchAgents, searchQuery]);
 
   // Client-side customer filter (agents already fetched with status/search)
-  const filteredAgents = agents.filter((agent) => {
-    return customerFilter === "all" || agent.customer === customerFilter;
-  });
+  const filteredAgents = agents;
 
   return (
     <div className="p-6 space-y-6">
@@ -255,31 +254,9 @@ export default function AgentsPage() {
                       {status.label}
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground font-medium">
-                    {agent.customer}
-                  </p>
                 </CardHeader>
 
                 <CardContent className="flex-1 space-y-4">
-                  {/* Channel Badges */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {(agent.channels ?? []).map((channel) => {
-                      const config = channelConfig[channel as Channel];
-                      if (!config) return null;
-                      const Icon = config.icon;
-                      return (
-                        <Badge
-                          key={channel}
-                          variant="outline"
-                          className="gap-1 font-normal rounded-full"
-                        >
-                          <Icon className="h-3 w-3" />
-                          {config.label}
-                        </Badge>
-                      );
-                    })}
-                  </div>
-
                   {/* Stats Row */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
@@ -287,7 +264,7 @@ export default function AgentsPage() {
                         Conversations
                       </p>
                       <p className="text-lg font-semibold leading-none">
-                        {formatNumber(agent.conversations ?? 0)}
+                        {formatNumber((agent as any).conversation_count ?? 0)}
                       </p>
                     </div>
                     <div className="space-y-1">

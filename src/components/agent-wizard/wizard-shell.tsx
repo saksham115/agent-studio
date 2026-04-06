@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -244,13 +244,61 @@ function isStepComplete(step: number, formData: WizardFormData): boolean {
   }
 }
 
-export function WizardShell() {
+export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = {}) {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<WizardFormData>(INITIAL_FORM_DATA);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [savedAgentId, setSavedAgentId] = useState<string | null>(null);
+  const [savedAgentId, setSavedAgentId] = useState<string | null>(initialAgentId ?? null);
+  const [loadingAgent, setLoadingAgent] = useState(!!initialAgentId);
   const router = useRouter();
+
+  // Load existing agent data when editing
+  useEffect(() => {
+    if (!initialAgentId) return;
+
+    async function loadAgent() {
+      try {
+        const [agent, channelsRes] = await Promise.all([
+          agentApi.get(initialAgentId!),
+          channelApi.list(initialAgentId!).catch(() => ({ items: [] })),
+        ]);
+
+        const channels = channelsRes?.items ?? [];
+
+        // Build channels form state from saved channel data
+        const channelsState = { ...INITIAL_FORM_DATA.channels };
+        for (const ch of channels) {
+          const type = ch.channel_type as "voice" | "whatsapp" | "chatbot";
+          if (channelsState[type]) {
+            channelsState[type] = {
+              enabled: true,
+              config: { ...channelsState[type].config, ...(ch.config || {}) },
+            };
+          }
+        }
+
+        setFormData((prev) => ({
+          ...prev,
+          identity: {
+            agentName: agent.name || "",
+            personaName: agent.persona || "",
+            customer: "",
+            systemPrompt: agent.system_prompt || "",
+            languages: agent.languages || [],
+            tone: "",
+          },
+          channels: channelsState,
+        }));
+      } catch (err) {
+        console.error("Failed to load agent for editing:", err);
+      } finally {
+        setLoadingAgent(false);
+      }
+    }
+
+    loadAgent();
+  }, [initialAgentId]);
 
   function goToStep(step: number) {
     if (step >= 1 && step <= 6) {
@@ -275,7 +323,7 @@ export function WizardShell() {
         name: formData.identity.agentName,
         persona: formData.identity.personaName,
         customer: formData.identity.customer,
-        systemPrompt: formData.identity.systemPrompt,
+        system_prompt: formData.identity.systemPrompt,
         languages: formData.identity.languages,
         tone: formData.identity.tone,
         channels: enabledChannels,
@@ -337,10 +385,8 @@ export function WizardShell() {
         console.warn(`${failures.length} sub-resource save(s) failed:`, failures);
       }
 
-      // Redirect to the agent detail page after a full save
-      if (!isDraft) {
-        router.push(`/agents/${agentId}`);
-      }
+      // Redirect to the agent detail page
+      router.push(`/agents/${agentId}`);
     } catch (err: any) {
       console.error("Failed to save agent:", err);
       setSaveError(err.message || "Failed to save agent");
@@ -407,7 +453,7 @@ export function WizardShell() {
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b px-6 py-3">
         <div>
-          <h1 className="text-lg font-semibold">Create New Agent</h1>
+          <h1 className="text-lg font-semibold">{initialAgentId ? "Edit Agent" : "Create New Agent"}</h1>
           <p className="text-xs text-muted-foreground">
             Step {currentStep} of 6 — {STEPS[currentStep - 1].title}
           </p>

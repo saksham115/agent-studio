@@ -1,3 +1,4 @@
+import secrets
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -5,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, verify_agent_ownership
+from app.config import settings
 from app.models.channel import Channel
 from app.schemas.auth import CurrentUser
 from app.schemas.channel import ChannelConfigUpdate, ChannelListResponse, ChannelResponse
@@ -25,15 +27,7 @@ async def update_channel_config(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> ChannelResponse:
-    """Create or update channel configuration for an agent.
-
-    Configures a deployment channel (voice, whatsapp, or chatbot) for the agent.
-    If the channel does not exist, it is created. If it exists, it is updated.
-
-    For WhatsApp channels, this includes Gupshup provider configuration.
-    For voice channels, this includes Exotel/Sarvam configuration.
-    For chatbot channels, this generates an embeddable API key.
-    """
+    """Create or update channel configuration for an agent."""
     if channel_type not in VALID_CHANNEL_TYPES:
         raise HTTPException(
             status_code=400,
@@ -41,6 +35,31 @@ async def update_channel_config(
         )
 
     await verify_agent_ownership(agent_id, db, current_user)
+
+    # For WhatsApp channels, auto-generate webhook URL and verify token
+    webhook_url = config_in.webhook_url
+    config_data = config_in.config
+
+    if channel_type == "whatsapp":
+        base = settings.PUBLIC_API_URL.rstrip("/")
+        webhook_url = webhook_url or f"{base}/api/v1/webhooks/whatsapp/{agent_id}"
+        if not config_data.get("verify_token"):
+            config_data["verify_token"] = secrets.token_urlsafe(32)
+
+        # Normalize camelCase keys from the frontend wizard to snake_case
+        # so the webhook handler can find them
+        key_map = {
+            "metaAccessToken": "access_token",
+            "metaPhoneNumberId": "phone_number_id",
+            "metaBusinessAccountId": "business_account_id",
+            "metaAppSecret": "app_secret",
+            "metaVerifyToken": "meta_verify_token",
+            "gupshupApiKey": "api_key",
+            "gupshupAppName": "app_name",
+        }
+        for camel, snake in key_map.items():
+            if camel in config_data and config_data[camel]:
+                config_data[snake] = config_data[camel]
 
     # Check if channel already exists
     stmt = select(Channel).where(
@@ -52,22 +71,22 @@ async def update_channel_config(
 
     if channel:
         # Update existing channel
-        channel.config = config_in.config
+        channel.config = config_data
         if config_in.is_active is not None:
             channel.is_active = config_in.is_active
         if config_in.phone_number is not None:
             channel.phone_number = config_in.phone_number
-        if config_in.webhook_url is not None:
-            channel.webhook_url = config_in.webhook_url
+        if webhook_url is not None:
+            channel.webhook_url = webhook_url
     else:
         # Create new channel
         channel = Channel(
             agent_id=agent_id,
             channel_type=channel_type,
-            config=config_in.config,
+            config=config_data,
             is_active=config_in.is_active if config_in.is_active is not None else False,
             phone_number=config_in.phone_number,
-            webhook_url=config_in.webhook_url,
+            webhook_url=webhook_url,
         )
         db.add(channel)
 
@@ -85,11 +104,7 @@ async def list_channels(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> ChannelListResponse:
-    """List all channels configured for an agent.
-
-    Returns channel configuration and status for voice, WhatsApp, and chatbot
-    channels. Includes active/inactive status and provider details.
-    """
+    """List all channels configured for an agent."""
     await verify_agent_ownership(agent_id, db, current_user)
 
     stmt = select(Channel).where(Channel.agent_id == agent_id).order_by(Channel.created_at)

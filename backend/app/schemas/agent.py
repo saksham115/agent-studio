@@ -52,6 +52,7 @@ class AgentResponse(BaseModel):
     published_version: int | None = None
     created_at: datetime
     updated_at: datetime
+    conversation_count: int = 0
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 

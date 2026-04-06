@@ -15,7 +15,6 @@ import {
   Shield,
   ChevronDown,
   ChevronRight,
-  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,17 +24,9 @@ import {
   CardTitle,
   CardContent,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  conversationApi,
-  type ConversationDetail,
-  type ConversationMessage,
-  type StateTransition,
-  type ActionTriggered,
-  type GuardrailTriggered,
-} from "@/lib/api";
+import { conversationApi } from "@/lib/api";
 
 type Channel = "voice" | "whatsapp" | "chatbot";
 
@@ -191,10 +182,10 @@ export default function ConversationDetailPage() {
 
   const channel = channelConfig[(conversationData.channel as Channel) ?? "chatbot"] ?? channelConfig.chatbot;
   const ChannelIcon = channel.icon;
-  const messages: ConversationMessage[] = conversationData.messages ?? [];
-  const stateTimeline: StateTransition[] = conversationData.stateTimeline ?? [];
-  const actionsTriggered: ActionTriggered[] = conversationData.actionsTriggered ?? [];
-  const guardrailsTriggered: GuardrailTriggered[] = conversationData.guardrailsTriggered ?? [];
+  const messages: any[] = conversationData.messages ?? [];
+  const stateTimeline: any[] = conversationData.stateTimeline ?? [];
+  const actionsTriggered: any[] = conversationData.actionsTriggered ?? [];
+  const guardrailsTriggered: any[] = conversationData.guardrailsTriggered ?? [];
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
@@ -258,46 +249,50 @@ export default function ConversationDetailPage() {
                 <p className="text-sm text-muted-foreground mt-1">Messages will appear here as the conversation progresses</p>
               </div>
             ) : (
-            <div className="p-4 space-y-4">
-              {messages.map((msg) => {
-                if (msg.sender === "system") {
+            <div className="p-4 space-y-3">
+              {messages.map((msg: any, idx: number) => {
+                const role = msg.role ?? msg.sender ?? "user";
+                const timestamp = msg.created_at
+                  ? new Date(msg.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+                  : msg.timestamp ?? "";
+
+                if (role === "system" || role === "tool") {
                   return (
-                    <div key={msg.id} className="flex justify-center">
+                    <div key={msg.id ?? idx} className="flex justify-center">
                       <div className="inline-flex items-center gap-2 rounded-full bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground italic">
                         <Activity className="h-3 w-3" />
                         {msg.content}
-                        <span className="text-[10px] opacity-70">
-                          {msg.timestamp}
-                        </span>
+                        <span className="text-[10px] opacity-70">{timestamp}</span>
                       </div>
                     </div>
                   );
                 }
 
-                const isAgent = msg.sender === "agent";
+                const isAgent = role === "assistant" || role === "agent";
 
                 return (
                   <div
-                    key={msg.id}
+                    key={msg.id ?? idx}
                     className={`flex ${isAgent ? "justify-end" : "justify-start"}`}
                   >
                     <div
                       className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                         isAgent
-                          ? "bg-primary/10 text-foreground rounded-br-md"
-                          : "bg-muted text-foreground rounded-bl-md"
+                          ? "bg-primary/15 border border-primary/20 text-foreground rounded-br-sm"
+                          : "bg-muted/80 border border-border/60 text-foreground rounded-bl-sm"
                       }`}
                     >
                       <div className="whitespace-pre-wrap">{msg.content}</div>
                       <div
-                        className={`text-[10px] mt-1.5 ${
+                        className={`text-[10px] mt-1.5 flex items-center gap-1 ${
                           isAgent
-                            ? "text-right text-primary/60"
-                            : "text-muted-foreground"
+                            ? "justify-end text-primary/50"
+                            : "text-muted-foreground/60"
                         }`}
                       >
-                        {isAgent ? "Agent" : "User"} &middot;{" "}
-                        {msg.timestamp}
+                        <span className="font-medium">{isAgent ? "Agent" : "User"}</span>
+                        <span>&middot;</span>
+                        <span>{timestamp}</span>
                       </div>
                     </div>
                   </div>
@@ -307,19 +302,6 @@ export default function ConversationDetailPage() {
             )}
           </ScrollArea>
 
-          {/* Input Area */}
-          <div className="border-t p-3">
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="Live input not available"
-                disabled
-                className="flex-1 opacity-50"
-              />
-              <Button size="icon" disabled>
-                <Send className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
         </div>
 
         {/* Right Panel - Metadata Sidebar */}

@@ -92,6 +92,7 @@ class AgentService:
         )
         self.db.add(agent)
         await self.db.flush()
+        await self.db.refresh(agent)
         return agent
 
     async def update_agent(self, agent: Agent, **kwargs: object) -> Agent:
@@ -100,6 +101,7 @@ class AgentService:
             if value is not None and hasattr(agent, key):
                 setattr(agent, key, value)
         await self.db.flush()
+        await self.db.refresh(agent)
         return agent
 
     async def publish_agent(self, agent: Agent) -> Agent:
@@ -111,6 +113,7 @@ class AgentService:
 
         agent.published_at = datetime.now(timezone.utc)
         await self.db.flush()
+        await self.db.refresh(agent)
         return agent
 
     async def delete_agent(self, agent: Agent) -> None:

@@ -8,7 +8,9 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_db
 from app.models.agent import Agent
+from app.models.channel import Channel
 from app.models.conversation import Conversation, Message
+from app.models.state import State
 from app.schemas.auth import CurrentUser
 from app.schemas.conversation import (
     ConversationDetailResponse,
@@ -38,10 +40,17 @@ async def list_conversations(
     Can be filtered by agent ID, conversation status, and date range.
     Only conversations from the current user's organization are returned.
     """
-    # Base query: join Conversation -> Agent and scope by org_id
+    # Base query: join Conversation -> Agent, optionally Channel & State
     base_query = (
-        select(Conversation, Agent.name.label("agent_name"))
+        select(
+            Conversation,
+            Agent.name.label("agent_name"),
+            Channel.channel_type.label("channel_type"),
+            State.name.label("current_state_name"),
+        )
         .join(Agent, Conversation.agent_id == Agent.id)
+        .outerjoin(Channel, Conversation.channel_id == Channel.id)
+        .outerjoin(State, Conversation.current_state_id == State.id)
         .where(Agent.org_id == uuid.UUID(str(current_user.org_id)))
     )
 
@@ -74,6 +83,8 @@ async def list_conversations(
         agent_name = row[1]
         summary = ConversationSummary.model_validate(conv)
         summary.agent_name = agent_name
+        summary.channel_type = row[2].value if len(row) > 2 and row[2] else None
+        summary.current_state_name = row[3] if len(row) > 3 else None
         items.append(summary)
 
     return ConversationListResponse(
@@ -140,8 +151,15 @@ async def search_conversations(
 
     # Fetch full conversation data for the matched IDs
     data_query = (
-        select(Conversation, Agent.name.label("agent_name"))
+        select(
+            Conversation,
+            Agent.name.label("agent_name"),
+            Channel.channel_type.label("channel_type"),
+            State.name.label("current_state_name"),
+        )
         .join(Agent, Conversation.agent_id == Agent.id)
+        .outerjoin(Channel, Conversation.channel_id == Channel.id)
+        .outerjoin(State, Conversation.current_state_id == State.id)
         .where(Conversation.id.in_(conv_ids))
         .order_by(Conversation.created_at.desc())
     )
@@ -154,6 +172,8 @@ async def search_conversations(
         agent_name = row[1]
         summary = ConversationSummary.model_validate(conv)
         summary.agent_name = agent_name
+        summary.channel_type = row[2].value if len(row) > 2 and row[2] else None
+        summary.current_state_name = row[3] if len(row) > 3 else None
         items.append(summary)
 
     return ConversationListResponse(

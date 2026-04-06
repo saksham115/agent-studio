@@ -74,9 +74,9 @@ class ConversationOrchestrator:
         self.db = db
         self.llm = LLMClient()
         self.prompt_builder = PromptBuilder()
-        self.kb_service = KnowledgeBaseService()
-        self.action_executor = ActionExecutor()
-        self.guardrail_service = GuardrailService()
+        self.kb_service = KnowledgeBaseService(db)
+        self.action_executor = ActionExecutor(db)
+        self.guardrail_service = GuardrailService(db)
         self.state_machine = StateMachine(db)
 
     # ------------------------------------------------------------------

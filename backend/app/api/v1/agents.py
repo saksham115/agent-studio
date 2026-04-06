@@ -4,8 +4,11 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import func, select
+
 from app.api.deps import get_current_user, get_db
 from app.models.agent import AgentStatus
+from app.models.conversation import Conversation
 from app.schemas.agent import (
     AgentCreate,
     AgentListResponse,
@@ -81,8 +84,26 @@ async def list_agents(
         search=search,
     )
 
+    # Fetch conversation counts for these agents
+    agent_ids = [a.id for a in agents]
+    conv_counts: dict[uuid.UUID, int] = {}
+    if agent_ids:
+        count_stmt = (
+            select(Conversation.agent_id, func.count())
+            .where(Conversation.agent_id.in_(agent_ids))
+            .group_by(Conversation.agent_id)
+        )
+        count_result = await db.execute(count_stmt)
+        conv_counts = dict(count_result.all())
+
+    items = []
+    for a in agents:
+        resp = AgentResponse.model_validate(a)
+        resp.conversation_count = conv_counts.get(a.id, 0)
+        items.append(resp)
+
     return AgentListResponse(
-        items=[AgentResponse.model_validate(a) for a in agents],
+        items=items,
         total=total,
         page=page,
         page_size=page_size,

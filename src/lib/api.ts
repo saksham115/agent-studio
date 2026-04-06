@@ -11,21 +11,31 @@ const API_BASE = "";
 
 export interface AgentResponse {
   id: string;
+  org_id: string;
+  created_by: string | null;
   name: string;
-  persona: string;
-  customer: string;
-  status: "active" | "draft" | "paused";
-  channels: ("voice" | "whatsapp" | "chatbot")[];
-  conversations: number;
-  completionRate: number;
+  description: string | null;
+  system_prompt: string | null;
+  persona: string | null;
+  status: string;
+  languages: string[] | null;
+  model_config: Record<string, any> | null;
+  welcome_message: string | null;
+  fallback_message: string | null;
+  escalation_message: string | null;
+  max_turns: number | null;
+  published_at: string | null;
+  published_version: number | null;
+  created_at: string;
+  updated_at: string;
+  // Derived fields (not from DB, computed or joined)
+  channels?: string[];
+  customer?: string;
+  tone?: string;
+  conversations?: number;
+  completionRate?: number;
   avgConversationLength?: string;
   guardrailTriggers?: number;
-  createdAt: string;
-  updatedAt?: string;
-  languages?: string[];
-  tone?: string;
-  systemPrompt?: string;
-  systemPromptPreview?: string;
   kbDocsCount?: number;
   actionsCount?: number;
   statesCount?: number;
@@ -36,17 +46,20 @@ export interface AgentListResponse {
   items: AgentResponse[];
   total: number;
   page: number;
-  pageSize: number;
+  page_size: number;
+  total_pages: number;
 }
 
 export interface AgentCreate {
   name: string;
-  persona: string;
-  customer: string;
-  systemPrompt?: string;
+  persona?: string;
+  system_prompt?: string;
+  description?: string;
   languages?: string[];
-  tone?: string;
-  channels?: ("voice" | "whatsapp" | "chatbot")[];
+  welcome_message?: string;
+  fallback_message?: string;
+  escalation_message?: string;
+  max_turns?: number;
 }
 
 // Matches backend DashboardStatsResponse (snake_case from Python)
@@ -55,107 +68,72 @@ export interface DashboardOverview {
   active_agents: number;
   total_conversations: number;
   active_conversations: number;
+  avg_completion_rate: number;
   total_messages: number;
-  avg_messages_per_conversation: number;
-  avg_sentiment_score: number | null;
-  conversations_by_channel: Record<string, number>;
-  conversations_by_status: Record<string, number>;
-  top_agents: { agent_id: string; name: string; conversation_count: number }[];
+  avg_response_time_ms: number;
+  guardrail_triggers: number;
+  conversations_today: number;
+  messages_today: number;
 }
 
-export interface ConversationListItem {
-  id: string;
-  contact: string;
-  contactName: string;
-  agentName: string;
-  channel: "voice" | "whatsapp" | "chatbot";
-  currentState: string;
+export interface DashboardTimeSeriesPoint {
+  date: string;
+  conversations: number;
   messages: number;
-  duration: string;
-  status: "active" | "completed" | "escalated" | "dropped";
-  startedAt: string;
-  startedRelative: string;
+  completion_rate: number;
 }
 
-export interface ConversationListResponse {
-  items: ConversationListItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-  agentNames?: string[];
+export interface DashboardChannelBreakdown {
+  channel: string;
+  conversations: number;
+  messages: number;
+  percentage: number;
 }
 
-export interface ConversationMessage {
-  id: string;
-  sender: "agent" | "user" | "system";
-  content: string;
-  timestamp: string;
-}
-
-export interface StateTransition {
-  state: string;
-  timestamp: string;
-  duration: string;
-}
-
-export interface ActionTriggered {
-  id: string;
-  name: string;
-  status: "success" | "failed";
-  timestamp: string;
-  payload: Record<string, string>;
-}
-
-export interface GuardrailTriggered {
-  id: string;
-  name: string;
-  severity: "low" | "medium" | "high";
-  details: string;
-  timestamp: string;
-}
-
-export interface ConversationDetail {
-  id: string;
-  contact: string;
-  contactName: string;
-  channel: "voice" | "whatsapp" | "chatbot";
-  direction: string;
-  status: string;
-  startedAt: string;
-  duration: string;
-  messageCount: number;
-  agentName: string;
-  agentId: string;
-  messages: ConversationMessage[];
-  stateTimeline: StateTransition[];
-  actionsTriggered: ActionTriggered[];
-  guardrailsTriggered: GuardrailTriggered[];
+export interface DashboardAgentPerformance {
+  agent_id: string;
+  agent_name: string;
+  conversations: number;
+  completion_rate: number;
+  avg_messages: number;
+  avg_response_time_ms: number;
 }
 
 // ---------------------------------------------------------------------------
-// Core fetch wrapper
+// Fetch wrapper
 // ---------------------------------------------------------------------------
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-    credentials: "include", // forward cookies (NextAuth session)
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = `${API_BASE}/api/v1${path}`;
+
+  const headers: Record<string, string> = {
+    ...(init?.headers as Record<string, string>),
+  };
+
+  // Only set Content-Type for non-FormData bodies
+  if (init?.body && !(init.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const res = await fetch(url, {
+    ...init,
+    headers,
+    credentials: "include",
   });
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || "API error");
+    const text = await res.text().catch(() => "");
+    let detail = `API error ${res.status}`;
+    try {
+      const json = JSON.parse(text);
+      detail = json.detail || detail;
+    } catch {
+      if (text) detail = text;
+    }
+    throw new Error(detail);
   }
 
-  // Handle 204 No Content
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
@@ -258,7 +236,7 @@ export const channelApi = {
   update: (agentId: string, channelType: string, data: any) =>
     apiFetch<any>(`/agents/${agentId}/channels/${channelType}`, {
       method: "PUT",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ config: data, is_active: true }),
     }),
 };
 
@@ -288,18 +266,16 @@ export const guardrailApi = {
 export const conversationApi = {
   list: (params?: { agent_id?: string; status?: string; page?: number }) => {
     const searchParams = new URLSearchParams();
-    if (params?.agent_id && params.agent_id !== "all") searchParams.set("agent_id", params.agent_id);
-    if (params?.status && params.status !== "all") searchParams.set("status", params.status);
+    if (params?.agent_id) searchParams.set("agent_id", params.agent_id);
+    if (params?.status) searchParams.set("status", params.status);
     if (params?.page) searchParams.set("page", String(params.page));
     const qs = searchParams.toString();
-    return apiFetch<ConversationListResponse>(`/conversations${qs ? `?${qs}` : ""}`);
+    return apiFetch<any>(`/conversations${qs ? `?${qs}` : ""}`);
   },
   search: (q: string) =>
-    apiFetch<ConversationListResponse>(
-      `/conversations/search?q=${encodeURIComponent(q)}`
-    ),
+    apiFetch<any>(`/conversations/search?q=${encodeURIComponent(q)}`),
   get: (id: string) =>
-    apiFetch<ConversationDetail>(`/conversations/${id}`),
+    apiFetch<any>(`/conversations/${id}`),
 };
 
 // ---------------------------------------------------------------------------
@@ -307,7 +283,14 @@ export const conversationApi = {
 // ---------------------------------------------------------------------------
 
 export const dashboardApi = {
-  overview: () => apiFetch<DashboardOverview>("/dashboard/overview"),
-  agentStats: (agentId: string) =>
-    apiFetch<any>(`/dashboard/${agentId}/stats`),
+  overview: () =>
+    apiFetch<DashboardOverview>("/dashboard/overview"),
+  timeseries: (days?: number) =>
+    apiFetch<DashboardTimeSeriesPoint[]>(
+      `/dashboard/timeseries${days ? `?days=${days}` : ""}`
+    ),
+  channelBreakdown: () =>
+    apiFetch<DashboardChannelBreakdown[]>("/dashboard/channels"),
+  agentPerformance: () =>
+    apiFetch<DashboardAgentPerformance[]>("/dashboard/agents"),
 };

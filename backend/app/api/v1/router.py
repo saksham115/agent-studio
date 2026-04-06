@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api.v1 import agents, knowledge_base, actions, states, channels, guardrails, conversations, dashboard, chatbot, webhooks
+from app.api.v1 import agents, auth, knowledge_base, actions, states, channels, guardrails, conversations, dashboard, chatbot, webhooks
 
 v1_router = APIRouter(tags=["v1"])
 
+v1_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
 v1_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
 v1_router.include_router(knowledge_base.router, prefix="/agents/{agent_id}/kb", tags=["Knowledge Base"])
 v1_router.include_router(actions.router, prefix="/agents/{agent_id}/actions", tags=["Actions"])

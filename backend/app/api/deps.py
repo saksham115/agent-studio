@@ -58,9 +58,13 @@ async def get_current_user(
     except JWTError:
         raise credentials_exception
 
+    org_id = payload.get("org_id")
+    if not org_id:
+        raise credentials_exception
+
     return CurrentUser(
         id=payload.get("sub"),
-        org_id=payload.get("org_id", "00000000-0000-0000-0000-000000000000"),
+        org_id=org_id,
         email=payload.get("email", ""),
         name=payload.get("name", ""),
         role=payload.get("role", "member"),

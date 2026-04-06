@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     GUPSHUP_SOURCE_PHONE: str = ""
     OPENAI_API_KEY: str = ""
     VOYAGE_API_KEY: str = ""
+    PUBLIC_API_URL: str = "http://localhost:8000"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
     model_config = {

@@ -34,12 +34,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   conversationApi,
   agentApi,
-  type ConversationListItem,
   type AgentResponse,
 } from "@/lib/api";
 
 type Channel = "voice" | "whatsapp" | "chatbot";
-type ConversationStatus = "active" | "completed" | "escalated" | "dropped";
+type ConversationStatus = "active" | "completed" | "escalated" | "dropped" | "abandoned";
 
 const channelConfig: Record<
   Channel,
@@ -89,6 +88,11 @@ const statusConfig: Record<
     dotClass: "bg-destructive",
     textClass: "text-destructive",
   },
+  abandoned: {
+    label: "Abandoned",
+    dotClass: "bg-destructive",
+    textClass: "text-destructive",
+  },
 };
 
 function TableSkeleton() {
@@ -133,7 +137,7 @@ export default function ConversationsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
 
-  const [conversations, setConversations] = useState<ConversationListItem[]>([]);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [agentNames, setAgentNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,8 +207,8 @@ export default function ConversationsPage() {
   }, [fetchConversations, searchQuery]);
 
   // Client-side channel filter (API may not support channel filter directly)
-  const filteredConversations = conversations.filter((conv) => {
-    return channelFilter === "all" || conv.channel === channelFilter;
+  const filteredConversations = conversations.filter((conv: any) => {
+    return channelFilter === "all" || (conv.channel_type ?? "chatbot") === channelFilter;
   });
 
   return (
@@ -317,10 +321,12 @@ export default function ConversationsPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredConversations.map((conv) => {
-                  const channel = channelConfig[conv.channel as Channel] ?? channelConfig.chatbot;
-                  const status = statusConfig[conv.status as ConversationStatus] ?? statusConfig.completed;
+                filteredConversations.map((conv: any) => {
+                  const chType = conv.channel_type ?? "chatbot";
+                  const channel = channelConfig[chType as Channel] ?? channelConfig.chatbot;
+                  const status = statusConfig[conv.status as ConversationStatus] ?? statusConfig.active;
                   const ChannelIcon = channel.icon;
+                  const startedAt = conv.started_at ? new Date(conv.started_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "--";
 
                   return (
                     <TableRow key={conv.id} className="cursor-pointer">
@@ -330,11 +336,13 @@ export default function ConversationsPage() {
                           className="block"
                         >
                           <div className="font-medium text-foreground">
-                            {conv.contactName}
+                            {conv.external_user_name || conv.external_user_phone || "--"}
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {conv.contact}
-                          </div>
+                          {conv.external_user_phone && conv.external_user_name && (
+                            <div className="text-xs text-muted-foreground">
+                              {conv.external_user_phone}
+                            </div>
+                          )}
                         </Link>
                       </TableCell>
                       <TableCell>
@@ -342,7 +350,7 @@ export default function ConversationsPage() {
                           href={`/conversations/${conv.id}`}
                           className="block text-sm"
                         >
-                          {conv.agentName}
+                          {conv.agent_name ?? "--"}
                         </Link>
                       </TableCell>
                       <TableCell>
@@ -357,10 +365,8 @@ export default function ConversationsPage() {
                         </Link>
                       </TableCell>
                       <TableCell>
-                        <Link href={`/conversations/${conv.id}`} className="block">
-                          <Badge variant="outline" className="font-normal">
-                            {conv.currentState}
-                          </Badge>
+                        <Link href={`/conversations/${conv.id}`} className="block text-sm text-muted-foreground">
+                          {conv.current_state_name ?? "--"}
                         </Link>
                       </TableCell>
                       <TableCell className="text-center">
@@ -368,7 +374,7 @@ export default function ConversationsPage() {
                           href={`/conversations/${conv.id}`}
                           className="block text-sm tabular-nums"
                         >
-                          {conv.messages}
+                          {conv.message_count ?? 0}
                         </Link>
                       </TableCell>
                       <TableCell>
@@ -378,7 +384,7 @@ export default function ConversationsPage() {
                         >
                           <span className="inline-flex items-center gap-1">
                             <Clock className="h-3 w-3" />
-                            {conv.duration}
+                            --
                           </span>
                         </Link>
                       </TableCell>
@@ -401,7 +407,7 @@ export default function ConversationsPage() {
                           href={`/conversations/${conv.id}`}
                           className="block text-sm text-muted-foreground"
                         >
-                          {conv.startedRelative}
+                          {startedAt}
                         </Link>
                       </TableCell>
                     </TableRow>

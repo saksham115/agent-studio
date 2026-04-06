@@ -317,13 +317,13 @@ def _build_meta_adapter(
         verify_token = wa_provider.webhook_verify_token
 
     if not access_token:
-        access_token = config.get("access_token", "")
+        access_token = config.get("access_token") or config.get("metaAccessToken") or ""
     if not phone_number_id:
-        phone_number_id = config.get("phone_number_id", "")
+        phone_number_id = config.get("phone_number_id") or config.get("metaPhoneNumberId") or ""
     if not app_secret:
-        app_secret = config.get("app_secret")
+        app_secret = config.get("app_secret") or config.get("metaAppSecret")
     if not verify_token:
-        verify_token = config.get("verify_token")
+        verify_token = config.get("verify_token") or config.get("metaVerifyToken")
 
     if not access_token:
         logger.error(

@@ -26,6 +26,8 @@ class ConversationSummary(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
     agent_name: str | None = None
+    channel_type: str | None = None
+    current_state_name: str | None = None
     external_user_id: str | None = None
     external_user_phone: str | None = None
     external_user_name: str | None = None

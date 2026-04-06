@@ -5,13 +5,49 @@ import { SignJWT } from "jose"
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 const AUTH_SECRET = process.env.AUTH_SECRET || ""
 
+// Cache user info per email so we don't call ensure-user on every request
+const userCache = new Map<string, { userId: string; orgId: string; role: string; expiresAt: number }>()
+
+async function ensureUser(user: { email?: string | null; name?: string | null }) {
+  const email = user.email || ""
+  const cached = userCache.get(email)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached
+  }
+
+  const res = await fetch(`${BACKEND_URL}/api/v1/auth/ensure-user`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: user.email || "",
+      name: user.name || "",
+    }),
+  })
+
+  if (!res.ok) {
+    throw new Error(`ensure-user failed: ${res.status}`)
+  }
+
+  const data = await res.json()
+  const entry = {
+    userId: data.user_id,
+    orgId: data.org_id,
+    role: data.role,
+    expiresAt: Date.now() + 5 * 60 * 1000, // Cache for 5 minutes
+  }
+  userCache.set(email, entry)
+  return entry
+}
+
 async function createBackendToken(user: { id?: string; email?: string | null; name?: string | null }) {
+  const { userId, orgId, role } = await ensureUser(user)
   const secret = new TextEncoder().encode(AUTH_SECRET)
   return new SignJWT({
-    sub: user.id || "",
+    sub: userId,
     email: user.email || "",
     name: user.name || "",
-    org_id: "00000000-0000-0000-0000-000000000000", // Default org for now
+    org_id: orgId,
+    role,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
