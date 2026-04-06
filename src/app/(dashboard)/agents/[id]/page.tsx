@@ -44,6 +44,7 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -686,6 +687,94 @@ function ApiKeysTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Test Call Tab
+// ---------------------------------------------------------------------------
+
+function TestCallTab({ agentId }: { agentId: string }) {
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [calling, setCalling] = useState(false);
+  const [callStatus, setCallStatus] = useState<{
+    success?: boolean;
+    call_sid?: string;
+    error?: string;
+  } | null>(null);
+
+  async function handleStartCall() {
+    if (!phoneNumber.trim()) return;
+    setCalling(true);
+    setCallStatus(null);
+    try {
+      const result = await agentApi.call(agentId, phoneNumber.trim());
+      setCallStatus(result);
+    } catch (err: any) {
+      setCallStatus({ success: false, error: err.message || "Failed to start call" });
+    } finally {
+      setCalling(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4 max-w-lg">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Phone className="h-4 w-4 text-primary" />
+            <CardTitle>Start Voice Call</CardTitle>
+          </div>
+          <CardDescription>
+            Call a phone number and connect them to this agent
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Input
+              placeholder="+91 98765 43210"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleStartCall()}
+              className="flex-1"
+            />
+            <Button
+              onClick={handleStartCall}
+              disabled={calling || !phoneNumber.trim()}
+            >
+              {calling ? (
+                <>
+                  <Phone className="h-3.5 w-3.5 mr-1.5 animate-pulse" />
+                  Calling...
+                </>
+              ) : (
+                <>
+                  <Phone className="h-3.5 w-3.5 mr-1.5" />
+                  Start Call
+                </>
+              )}
+            </Button>
+          </div>
+
+          {callStatus && (
+            <div className={`rounded-lg border p-3 text-sm ${
+              callStatus.success
+                ? "border-primary/30 bg-primary/5 text-primary"
+                : "border-destructive/30 bg-destructive/5 text-destructive"
+            }`}>
+              {callStatus.success ? (
+                <div className="space-y-1">
+                  <p className="font-medium">Call initiated</p>
+                  <p className="text-xs opacity-70 font-mono">SID: {callStatus.call_sid}</p>
+                </div>
+              ) : (
+                <p>{callStatus.error}</p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -878,10 +967,12 @@ export default function AgentDetailPage() {
             <MessageCircle className="h-4 w-4" />
             Conversations
           </TabsTrigger>
-          <TabsTrigger value="api-keys">
-            <Key className="h-4 w-4" />
-            API Keys
-          </TabsTrigger>
+          {channelsData.some((ch: any) => ch.channel_type === "voice") && (
+            <TabsTrigger value="test-call">
+              <Phone className="h-4 w-4" />
+              Test Call
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -896,8 +987,8 @@ export default function AgentDetailPage() {
           <ConversationsTab agentId={agentId} conversationsData={conversationsData} />
         </TabsContent>
 
-        <TabsContent value="api-keys" className="mt-4">
-          <ApiKeysTab />
+        <TabsContent value="test-call" className="mt-4">
+          <TestCallTab agentId={agentId} />
         </TabsContent>
       </Tabs>
     </div>

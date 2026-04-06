@@ -165,6 +165,11 @@ export const agentApi = {
     apiFetch<void>(`/agents/${id}`, { method: "DELETE" }),
   publish: (id: string) =>
     apiFetch<AgentResponse>(`/agents/${id}/publish`, { method: "POST" }),
+  call: (id: string, phoneNumber: string) =>
+    apiFetch<{ success: boolean; call_sid?: string; error?: string }>(`/agents/${id}/call`, {
+      method: "POST",
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    }),
 };
 
 // ---------------------------------------------------------------------------

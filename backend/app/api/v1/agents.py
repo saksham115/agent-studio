@@ -4,10 +4,13 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from app.api.deps import get_current_user, get_db
+from app.config import settings
 from app.models.agent import AgentStatus
+from app.models.channel import Channel
 from app.models.conversation import Conversation
 from app.schemas.agent import (
     AgentCreate,
@@ -196,4 +199,69 @@ async def publish_agent(
         status=agent.status.value,
         published_at=agent.published_at,
         published_version=agent.published_version,
+    )
+
+
+class StartCallRequest(BaseModel):
+    phone_number: str
+
+
+class StartCallResponse(BaseModel):
+    success: bool
+    call_sid: str | None = None
+    error: str | None = None
+
+
+@router.post(
+    "/{agent_id}/call",
+    response_model=StartCallResponse,
+)
+async def start_call(
+    agent_id: uuid.UUID,
+    body: StartCallRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> StartCallResponse:
+    """Initiate an outbound voice call to the given phone number."""
+    service = AgentService(db)
+    agent = await service.get_agent_by_id(agent_id, uuid.UUID(str(current_user.org_id)))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if agent.status != AgentStatus.PUBLISHED:
+        raise HTTPException(status_code=400, detail="Agent must be published to make calls")
+
+    # Find the voice channel to get config
+    stmt = select(Channel).where(
+        Channel.agent_id == agent_id,
+        Channel.channel_type == "voice",
+    )
+    result = await db.execute(stmt)
+    channel = result.scalar_one_or_none()
+
+    if not channel:
+        raise HTTPException(status_code=400, detail="Voice channel not configured for this agent")
+
+    from app.services.channels.voice.exotel import ExotelClient
+
+    exotel = ExotelClient()
+    base_url = settings.PUBLIC_API_URL.rstrip("/")
+
+    # Use the ExoPhone from channel config, or fall back to a default
+    config = channel.config or {}
+    caller_id = config.get("phoneNumber") or channel.phone_number or ""
+    if not caller_id:
+        raise HTTPException(status_code=400, detail="No ExoPhone number configured")
+
+    call_result = await exotel.make_call(
+        from_number=body.phone_number,
+        to_number=caller_id,
+        caller_id=caller_id,
+        callback_url=f"{base_url}/api/v1/webhooks/voice/status",
+        exoml_app_url=f"{base_url}/api/v1/webhooks/voice/incoming",
+    )
+
+    return StartCallResponse(
+        success=call_result.success,
+        call_sid=call_result.call_sid,
+        error=call_result.error,
     )
