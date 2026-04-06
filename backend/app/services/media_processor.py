@@ -95,30 +95,27 @@ class MediaProcessor:
     async def _transcribe_audio(
         self, file_bytes: bytes, content_type: str, caption: str | None
     ) -> str:
-        """Transcribe voice note using OpenAI Whisper API."""
-        if not settings.OPENAI_API_KEY:
-            logger.warning("No OPENAI_API_KEY configured, cannot transcribe voice note")
+        """Transcribe voice note using Sarvam AI Saarika STT."""
+        if not settings.SARVAM_API_KEY:
+            logger.warning("No SARVAM_API_KEY configured, cannot transcribe voice note")
             return "[User sent a voice message but transcription is not configured]. Ask them to type their message instead."
 
         try:
+            from app.services.channels.voice.sarvam import SarvamSTT
+
+            stt = SarvamSTT()
             ext = self._ext_from_content_type(content_type, "voice")
-            filename = f"voice.{ext}"
+            result = await stt.transcribe(
+                audio_data=file_bytes,
+                language="unknown",  # Auto-detect language
+                audio_format=ext,
+            )
 
-            async with httpx.AsyncClient(timeout=60) as client:
-                resp = await client.post(
-                    "https://api.openai.com/v1/audio/transcriptions",
-                    headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                    data={"model": "whisper-1", "language": "en"},
-                    files={"file": (filename, file_bytes, content_type)},
-                )
-                resp.raise_for_status()
-                transcript = resp.json().get("text", "").strip()
-
-            if not transcript:
+            if not result.text:
                 return "[User sent a voice message that could not be transcribed]. Ask them to type their message instead."
 
-            logger.info("Transcribed voice note: %d chars", len(transcript))
-            return f"[Voice message transcription]: {transcript}"
+            logger.info("Transcribed voice note via Sarvam: %d chars, lang=%s", len(result.text), result.language)
+            return f"[Voice message transcription]: {result.text}"
 
         except Exception:
             logger.exception("Voice transcription failed")
