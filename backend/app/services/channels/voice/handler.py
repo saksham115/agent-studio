@@ -181,10 +181,15 @@ class VoiceCallHandler:
         )
 
         # --- Step 2: Process via orchestrator ---------------------------------
+        # Prepend a voice-channel hint so the LLM keeps responses concise.
+        voice_hint = (
+            "[VOICE CALL: Keep your response under 2-3 short sentences. "
+            "Be conversational and concise — the user is listening, not reading.]\n\n"
+        )
         try:
             orch_response = await self.orchestrator.process_message(
                 conversation_id=conversation_id,
-                user_message=user_text,
+                user_message=voice_hint + user_text,
             )
         except Exception:
             logger.error(
