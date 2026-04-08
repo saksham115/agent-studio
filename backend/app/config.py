@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     VOYAGE_API_KEY: str = ""
     PUBLIC_API_URL: str = "http://localhost:8000"
+    BOLNA_API_URL: str = "http://localhost:5001"
+    BOLNA_WS_URL: str = "ws://localhost:5001"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
     model_config = {
