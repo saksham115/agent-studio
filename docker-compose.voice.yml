@@ -1,5 +1,3 @@
-version: "3.8"
-
 # Voice call services — run alongside the main backend.
 # Usage: docker compose -f docker-compose.voice.yml up -d
 
@@ -8,7 +6,6 @@ services:
     build:
       context: ./bolna
       dockerfile: Dockerfile
-    image: agent-studio-bolna:latest
     container_name: agent_studio_bolna
     restart: unless-stopped
     ports:
