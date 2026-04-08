@@ -1,0 +1,34 @@
+version: "3.8"
+
+# Voice call services — run alongside the main backend.
+# Usage: docker compose -f docker-compose.voice.yml up -d
+
+services:
+  bolna:
+    build:
+      context: ./bolna
+      dockerfile: Dockerfile
+    image: agent-studio-bolna:latest
+    container_name: agent_studio_bolna
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      REDIS_URL: redis://redis:6379/1
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      LOG_LEVEL: info
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent_studio_voice_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
