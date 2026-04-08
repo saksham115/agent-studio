@@ -75,10 +75,11 @@ async def build_bolna_agent_config(
                         "agent_type": "simple_llm_agent",
                         "agent_flow_type": "streaming",
                         "llm_config": {
-                            "provider": "agent_studio",
+                            "provider": "custom",
                             "model": "orchestrator",
                             "max_tokens": 200,
                             "temperature": 0.0,
+                            # base_url and llm_key are injected by BolnaService.create_call_agent()
                         },
                     },
                     "synthesizer": {

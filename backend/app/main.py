@@ -16,21 +16,10 @@ logging.getLogger("app").setLevel(logging.INFO)
 logging.getLogger("app").addHandler(_log_handler)
 
 
-def _register_bolna_providers():
-    """Register our custom LLM adapter with Bolna's provider registry."""
-    try:
-        from bolna.providers import SUPPORTED_LLM_PROVIDERS
-        from app.services.channels.voice.bolna_llm_adapter import OrchestratorLLM
-        SUPPORTED_LLM_PROVIDERS["agent_studio"] = OrchestratorLLM
-        logging.getLogger("app").info("Registered OrchestratorLLM with Bolna")
-    except ImportError:
-        logging.getLogger("app").warning("Bolna not installed, voice bot disabled")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler for startup and shutdown events."""
-    _register_bolna_providers()
+    # Startup
     yield
     # Shutdown
 
