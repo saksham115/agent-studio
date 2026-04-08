@@ -1,11 +1,21 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from "@/components/ui/dialog";
 import {
   Card,
   CardContent,
@@ -104,6 +114,8 @@ const SEVERITY_CONFIG: Record<
 };
 
 export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
+  const [editingGuardrail, setEditingGuardrail] = useState<Guardrail | null>(null);
+
   function updateGuardrail(id: string, updates: Partial<Guardrail>) {
     onChange({
       ...data,
@@ -133,6 +145,7 @@ export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
       ...data,
       guardrails: [...data.guardrails, newRule],
     });
+    setEditingGuardrail({ ...newRule });
   }
 
   function autoGenerate() {
@@ -336,6 +349,7 @@ export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
                       variant="ghost"
                       size="icon-xs"
                       className="text-muted-foreground"
+                      onClick={() => setEditingGuardrail({ ...guardrail })}
                     >
                       <PencilIcon className="size-3" />
                     </Button>
@@ -361,6 +375,100 @@ export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
           Add Custom Rule
         </Button>
       )}
+
+      <Dialog
+        open={editingGuardrail !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingGuardrail(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Guardrail</DialogTitle>
+            <DialogDescription>
+              Modify the guardrail name, category, and rule text.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingGuardrail && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="guardrail-name">Name</Label>
+                <Input
+                  id="guardrail-name"
+                  value={editingGuardrail.name}
+                  onChange={(e) =>
+                    setEditingGuardrail({
+                      ...editingGuardrail,
+                      name: e.target.value,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Category</Label>
+                <Select
+                  value={editingGuardrail.category}
+                  onValueChange={(val) =>
+                    setEditingGuardrail({
+                      ...editingGuardrail,
+                      category: val as Guardrail["category"],
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="compliance">Compliance</SelectItem>
+                    <SelectItem value="pii">PII</SelectItem>
+                    <SelectItem value="topic_boundary">Topic Boundary</SelectItem>
+                    <SelectItem value="safety">Safety</SelectItem>
+                    <SelectItem value="anti_misselling">Anti-Misselling</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="guardrail-rule">Rule</Label>
+                <Textarea
+                  id="guardrail-rule"
+                  value={editingGuardrail.rule}
+                  onChange={(e) =>
+                    setEditingGuardrail({
+                      ...editingGuardrail,
+                      rule: e.target.value,
+                    })
+                  }
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button
+              onClick={() => {
+                if (editingGuardrail) {
+                  updateGuardrail(editingGuardrail.id, {
+                    name: editingGuardrail.name,
+                    rule: editingGuardrail.rule,
+                    category: editingGuardrail.category,
+                  });
+                  setEditingGuardrail(null);
+                }
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
