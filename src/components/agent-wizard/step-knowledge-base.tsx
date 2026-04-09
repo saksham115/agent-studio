@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,7 +21,6 @@ import {
 } from "@/components/ui/select";
 import {
   UploadCloudIcon,
-  FileIcon,
   FileTextIcon,
   TableIcon,
   Trash2Icon,
@@ -31,15 +31,19 @@ import {
   PencilIcon,
   CheckCircle2Icon,
   LoaderIcon,
+  CircleXIcon,
+  CircleDotDashedIcon,
 } from "lucide-react";
 
-interface UploadedDocument {
+export interface UploadedDocument {
   id: string;
   name: string;
-  type: "PDF" | "DOCX" | "CSV";
+  type: "PDF" | "TXT" | "CSV";
   category: string;
-  status: "processing" | "ready";
-  size: string;
+  status: "pending" | "processing" | "ready" | "failed";
+  size: number;
+  backendId?: string;
+  errorMessage?: string;
 }
 
 interface StructuredSource {
@@ -50,7 +54,7 @@ interface StructuredSource {
   status: "connected" | "disconnected" | "pending";
 }
 
-interface StepKnowledgeBaseData {
+export interface StepKnowledgeBaseData {
   documents: UploadedDocument[];
   structuredSources: StructuredSource[];
 }
@@ -58,7 +62,12 @@ interface StepKnowledgeBaseData {
 interface StepKnowledgeBaseProps {
   data: StepKnowledgeBaseData;
   onChange: (data: StepKnowledgeBaseData) => void;
+  onFileAdded?: (tempId: string, file: File) => void;
+  onFileRemoved?: (tempId: string) => void;
 }
+
+const ALLOWED_EXTENSIONS = new Set(["pdf", "txt", "csv"]);
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 const CATEGORIES = [
   "Product Brochure",
@@ -69,7 +78,7 @@ const CATEGORIES = [
 
 const FILE_TYPE_ICONS: Record<string, React.ReactNode> = {
   PDF: <FileTextIcon className="size-4 text-destructive" />,
-  DOCX: <FileIcon className="size-4 text-chart-2" />,
+  TXT: <FileTextIcon className="size-4 text-chart-2" />,
   CSV: <TableIcon className="size-4 text-primary" />,
 };
 
@@ -79,11 +88,17 @@ const SOURCE_TYPE_ICONS: Record<string, React.ReactNode> = {
   "Static JSON": <FileJsonIcon className="size-4 text-chart-3" />,
 };
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function typeBadgeVariant(type: string) {
   switch (type) {
     case "PDF":
       return "bg-destructive/10 text-destructive";
-    case "DOCX":
+    case "TXT":
       return "bg-chart-2/10 text-chart-2";
     case "CSV":
       return "bg-primary/10 text-primary";
@@ -109,11 +124,24 @@ function statusBadge(status: string) {
         </span>
       );
     case "processing":
-    case "pending":
       return (
         <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
           <LoaderIcon className="size-3 animate-spin" />
-          {status === "processing" ? "Processing" : "Pending"}
+          Processing
+        </span>
+      );
+    case "pending":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <CircleDotDashedIcon className="size-3" />
+          Pending upload
+        </span>
+      );
+    case "failed":
+      return (
+        <span className="inline-flex items-center gap-1 text-xs text-destructive">
+          <CircleXIcon className="size-3" />
+          Failed
         </span>
       );
     case "disconnected":
@@ -128,8 +156,54 @@ function statusBadge(status: string) {
   }
 }
 
-export function StepKnowledgeBase({ data, onChange }: StepKnowledgeBaseProps) {
+export function StepKnowledgeBase({
+  data,
+  onChange,
+  onFileAdded,
+  onFileRemoved,
+}: StepKnowledgeBaseProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function processFiles(files: File[]) {
+    const newDocs: UploadedDocument[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const ext = file.name.split(".").pop()?.toLowerCase() || "";
+
+      if (!ALLOWED_EXTENSIONS.has(ext)) {
+        toast.error(`"${file.name}" rejected — only PDF, TXT, and CSV files are supported.`);
+        continue;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`"${file.name}" is too large (${formatFileSize(file.size)}). Maximum is 50 MB.`);
+        continue;
+      }
+
+      const tempId = `doc-${Date.now()}-${i}`;
+      const fileType = ext.toUpperCase() as UploadedDocument["type"];
+
+      newDocs.push({
+        id: tempId,
+        name: file.name,
+        type: fileType,
+        category: "Product Brochure",
+        status: "pending",
+        size: file.size,
+      });
+
+      onFileAdded?.(tempId, file);
+    }
+
+    if (newDocs.length > 0) {
+      onChange({
+        ...data,
+        documents: [...data.documents, ...newDocs],
+      });
+    }
+  }
 
   function updateDocCategory(docId: string, category: string) {
     onChange({
@@ -141,6 +215,7 @@ export function StepKnowledgeBase({ data, onChange }: StepKnowledgeBaseProps) {
   }
 
   function removeDocument(docId: string) {
+    onFileRemoved?.(docId);
     onChange({
       ...data,
       documents: data.documents.filter((d) => d.id !== docId),
@@ -153,21 +228,6 @@ export function StepKnowledgeBase({ data, onChange }: StepKnowledgeBaseProps) {
       structuredSources: data.structuredSources.filter(
         (s) => s.id !== sourceId
       ),
-    });
-  }
-
-  function addSampleDocument() {
-    const newDoc: UploadedDocument = {
-      id: `doc-${Date.now()}`,
-      name: `document-${data.documents.length + 1}.pdf`,
-      type: "PDF",
-      category: "Product Brochure",
-      status: "processing",
-      size: "1.2 MB",
-    };
-    onChange({
-      ...data,
-      documents: [...data.documents, newDoc],
     });
   }
 
@@ -201,27 +261,20 @@ export function StepKnowledgeBase({ data, onChange }: StepKnowledgeBaseProps) {
       setIsDragging(false);
       const files = Array.from(e.dataTransfer.files);
       if (files.length > 0) {
-        const newDocs: UploadedDocument[] = files.map((file, i) => {
-          const ext = file.name.split(".").pop()?.toUpperCase() || "PDF";
-          const fileType = (
-            ["PDF", "DOCX", "CSV"].includes(ext) ? ext : "PDF"
-          ) as UploadedDocument["type"];
-          return {
-            id: `doc-${Date.now()}-${i}`,
-            name: file.name,
-            type: fileType,
-            category: "Product Brochure",
-            status: "processing" as const,
-            size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-          };
-        });
-        onChange({
-          ...data,
-          documents: [...data.documents, ...newDocs],
-        });
+        processFiles(files);
       }
     },
-    [data, onChange]
+    [data, onChange, onFileAdded]
+  );
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        processFiles(Array.from(e.target.files));
+        e.target.value = "";
+      }
+    },
+    [data, onChange, onFileAdded]
   );
 
   return (
@@ -246,11 +299,20 @@ export function StepKnowledgeBase({ data, onChange }: StepKnowledgeBaseProps) {
           <Badge variant="secondary">{data.documents.length} files</Badge>
         </div>
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept=".pdf,.txt,.csv"
+          className="hidden"
+          onChange={handleFileSelect}
+        />
+
         <div
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={addSampleDocument}
+          onClick={() => fileInputRef.current?.click()}
           className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 transition-colors ${
             isDragging
               ? "border-primary bg-primary/5"
@@ -265,7 +327,7 @@ export function StepKnowledgeBase({ data, onChange }: StepKnowledgeBaseProps) {
               Drag & drop files here, or click to browse
             </p>
             <p className="text-xs text-muted-foreground">
-              Supports PDF, DOCX, CSV, XLSX, TXT (max 25 MB per file)
+              Supports PDF, TXT, CSV (max 50 MB per file)
             </p>
           </div>
         </div>
@@ -294,7 +356,7 @@ export function StepKnowledgeBase({ data, onChange }: StepKnowledgeBaseProps) {
                     </span>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    {doc.size}
+                    {formatFileSize(doc.size)}
                   </span>
                 </div>
                 <Select

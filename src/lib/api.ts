@@ -183,14 +183,26 @@ export const agentApi = {
 export const kbApi = {
   listDocuments: (agentId: string) =>
     apiFetch<any>(`/agents/${agentId}/kb/documents`),
-  uploadDocument: (agentId: string, file: File) => {
+  uploadDocument: async (agentId: string, file: File) => {
     const formData = new FormData();
     formData.append("file", file);
-    return fetch(`${API_BASE}/api/v1/agents/${agentId}/kb/documents`, {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    }).then((r) => r.json());
+    const res = await fetch(
+      `${API_BASE}/api/v1/agents/${agentId}/kb/documents`,
+      {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      }
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let detail = `Upload failed (${res.status})`;
+      try {
+        detail = JSON.parse(text).detail || detail;
+      } catch {}
+      throw new Error(detail);
+    }
+    return res.json();
   },
   deleteDocument: (agentId: string, docId: string) =>
     apiFetch<void>(`/agents/${agentId}/kb/documents/${docId}`, {
