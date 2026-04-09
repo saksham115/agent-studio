@@ -247,6 +247,65 @@ function isStepComplete(step: number, formData: WizardFormData): boolean {
   }
 }
 
+// Guardrail UI ↔ backend mapping. The backend's guardrail_type_enum is
+// {input, output, topic, compliance, pii, custom}; the wizard surfaces a
+// domain-friendly taxonomy that includes safety/anti_misselling/topic_boundary.
+// safety and anti_misselling collapse to "custom" on save (lossy round-trip).
+type WizardGuardrail = WizardFormData["guardrails"]["guardrails"][number];
+
+const UI_TO_BACKEND_GUARDRAIL_TYPE: Record<
+  WizardGuardrail["category"],
+  string
+> = {
+  compliance: "compliance",
+  pii: "pii",
+  topic_boundary: "topic",
+  safety: "custom",
+  anti_misselling: "custom",
+  custom: "custom",
+};
+
+const BACKEND_TO_UI_GUARDRAIL_TYPE: Record<string, WizardGuardrail["category"]> = {
+  compliance: "compliance",
+  pii: "pii",
+  topic: "topic_boundary",
+  custom: "custom",
+  input: "custom",
+  output: "custom",
+};
+
+const BACKEND_TO_UI_SEVERITY: Record<string, WizardGuardrail["severity"]> = {
+  block: "block",
+  warn: "warn",
+  log: "log",
+  redirect: "warn",
+};
+
+function guardrailUiToBackend(g: WizardGuardrail) {
+  return {
+    name: g.name,
+    description: null,
+    guardrail_type: UI_TO_BACKEND_GUARDRAIL_TYPE[g.category] ?? "custom",
+    rule: g.rule,
+    action: g.severity,
+    priority: 50,
+    is_active: g.enabled,
+  };
+}
+
+function guardrailBackendToUi(g: Record<string, unknown>): WizardGuardrail {
+  const backendType = (g.guardrail_type as string) ?? "custom";
+  const backendAction = (g.action as string) ?? "block";
+  return {
+    id: String(g.id),
+    name: (g.name as string | undefined) ?? "",
+    rule: (g.rule as string | undefined) ?? "",
+    category: BACKEND_TO_UI_GUARDRAIL_TYPE[backendType] ?? "custom",
+    severity: BACKEND_TO_UI_SEVERITY[backendAction] ?? "warn",
+    enabled: !!g.is_active,
+  };
+}
+
 export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = {}) {
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<WizardFormData>(INITIAL_FORM_DATA);
@@ -262,6 +321,8 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
   const deletedDocIdsRef = useRef<Set<string>>(new Set());
   // Track backend-saved actions that were removed in the UI
   const deletedActionIdsRef = useRef<Set<string>>(new Set());
+  // Track backend-saved guardrails that were removed in the UI
+  const deletedGuardrailIdsRef = useRef<Set<string>>(new Set());
 
   const handleFileAdded = useCallback((tempId: string, file: File) => {
     pendingFilesRef.current.set(tempId, file);
@@ -282,11 +343,12 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
 
     async function loadAgent() {
       try {
-        const [agent, channelsRes, kbRes, actionsRes] = await Promise.all([
+        const [agent, channelsRes, kbRes, actionsRes, guardrailsRes] = await Promise.all([
           agentApi.get(initialAgentId!),
           channelApi.list(initialAgentId!).catch(() => ({ items: [] })),
           kbApi.listDocuments(initialAgentId!).catch(() => ({ items: [] })),
           actionApi.list(initialAgentId!).catch(() => ({ items: [] })),
+          guardrailApi.list(initialAgentId!).catch(() => ({ items: [] })),
         ]);
 
         const channels = channelsRes?.items ?? [];
@@ -365,6 +427,12 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           };
         });
 
+        // Map backend guardrails to UI format
+        const guardrailItems = (guardrailsRes?.items ?? []) as Array<
+          Record<string, unknown>
+        >;
+        const guardrails = guardrailItems.map(guardrailBackendToUi);
+
         setFormData((prev) => ({
           ...prev,
           identity: {
@@ -380,6 +448,7 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
             structuredSources: [],
           },
           actions: { actions },
+          guardrails: { guardrails },
           channels: channelsState,
         }));
       } catch (err) {
@@ -486,10 +555,28 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
         }
       }
 
-      // Save guardrails
-      if (formData.guardrails.guardrails.length > 0) {
+      // Save guardrails — create new ones, update existing, delete removed.
+      // The backend's PUT /guardrails endpoint requires existing UUIDs for
+      // every item, so we branch by id prefix: temp ids (guard-, auto-) get
+      // POSTed individually, real UUIDs are PUT in bulk.
+      const updates: Array<Record<string, unknown>> = [];
+      for (const g of formData.guardrails.guardrails) {
+        const isNew = g.id.startsWith("guard-") || g.id.startsWith("auto-");
+        const payload = guardrailUiToBackend(g);
+        if (isNew) {
+          savePromises.push(guardrailApi.create(agentId, payload));
+        } else {
+          updates.push({ id: g.id, ...payload });
+        }
+      }
+      if (updates.length > 0) {
+        savePromises.push(guardrailApi.bulkUpdate(agentId, updates));
+      }
+      for (const guardrailId of deletedGuardrailIdsRef.current) {
         savePromises.push(
-          guardrailApi.bulkUpdate(agentId, formData.guardrails.guardrails)
+          guardrailApi.delete(agentId!, guardrailId).then(() => {
+            deletedGuardrailIdsRef.current.delete(guardrailId);
+          })
         );
       }
 
@@ -601,7 +688,19 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
         return (
           <StepGuardrails
             data={formData.guardrails}
-            onChange={(guardrails) => setFormData({ ...formData, guardrails })}
+            agentId={savedAgentId}
+            onChange={(guardrails) => {
+              // Track removed backend-persisted guardrails for deletion on save
+              const nextIds = new Set(guardrails.guardrails.map((g) => g.id));
+              for (const g of formData.guardrails.guardrails) {
+                const isTemp =
+                  g.id.startsWith("guard-") || g.id.startsWith("auto-");
+                if (!nextIds.has(g.id) && !isTemp) {
+                  deletedGuardrailIdsRef.current.add(g.id);
+                }
+              }
+              setFormData({ ...formData, guardrails });
+            }}
           />
         );
       default:
