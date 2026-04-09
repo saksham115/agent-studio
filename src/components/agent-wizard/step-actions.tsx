@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -14,31 +16,57 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   PlusIcon,
   Trash2Icon,
   PencilIcon,
-  LinkIcon,
-  DatabaseIcon,
-  FileOutputIcon,
   GlobeIcon,
-  BellIcon,
+  WrenchIcon,
+  UserPlusIcon,
+  SearchIcon,
+  SendIcon,
+  SparklesIcon,
   CheckCircle2Icon,
 } from "lucide-react";
 
-interface ActionParam {
+export type ActionType =
+  | "api_call"
+  | "tool_call"
+  | "handoff"
+  | "data_lookup"
+  | "send_message"
+  | "custom";
+
+export interface ActionParam {
   name: string;
   type: string;
   required: boolean;
   description: string;
 }
 
-interface AgentAction {
+export interface AgentAction {
   id: string;
   name: string;
   description: string;
-  type: "db_update" | "link_generation" | "doc_fetch" | "api_call" | "notification";
+  action_type: ActionType;
   parameters: ActionParam[];
-  requireConfirmation: boolean;
+  config: Record<string, unknown>;
+  requires_confirmation: boolean;
 }
 
 interface StepActionsData {
@@ -51,43 +79,87 @@ interface StepActionsProps {
 }
 
 const TYPE_CONFIG: Record<
-  AgentAction["type"],
+  ActionType,
   { label: string; color: string; icon: React.ReactNode }
 > = {
-  db_update: {
-    label: "DB Update",
-    color: "bg-chart-2/10 text-chart-2 border-chart-2/20",
-    icon: <DatabaseIcon className="size-4" />,
-  },
-  link_generation: {
-    label: "Link Gen",
-    color: "bg-chart-4/10 text-chart-4 border-chart-4/20",
-    icon: <LinkIcon className="size-4" />,
-  },
-  doc_fetch: {
-    label: "Doc Fetch",
-    color: "bg-primary/10 text-primary border-primary/20",
-    icon: <FileOutputIcon className="size-4" />,
-  },
   api_call: {
     label: "API Call",
-    color: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+    color:
+      "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
     icon: <GlobeIcon className="size-4" />,
   },
-  notification: {
-    label: "Notification",
-    color: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
-    icon: <BellIcon className="size-4" />,
+  tool_call: {
+    label: "Tool Call",
+    color: "bg-chart-4/10 text-chart-4 border-chart-4/20",
+    icon: <WrenchIcon className="size-4" />,
+  },
+  handoff: {
+    label: "Handoff",
+    color:
+      "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
+    icon: <UserPlusIcon className="size-4" />,
+  },
+  data_lookup: {
+    label: "Data Lookup",
+    color: "bg-chart-2/10 text-chart-2 border-chart-2/20",
+    icon: <SearchIcon className="size-4" />,
+  },
+  send_message: {
+    label: "Send Message",
+    color: "bg-primary/10 text-primary border-primary/20",
+    icon: <SendIcon className="size-4" />,
+  },
+  custom: {
+    label: "Custom",
+    color: "bg-muted text-muted-foreground border-border",
+    icon: <SparklesIcon className="size-4" />,
   },
 };
 
+const PARAM_TYPES = ["string", "number", "boolean", "object", "array"] as const;
+
 export function StepActions({ data, onChange }: StepActionsProps) {
+  const [editing, setEditing] = useState<AgentAction | null>(null);
+  const [configText, setConfigText] = useState("");
+  const [configError, setConfigError] = useState<string | null>(null);
+
+  function openEdit(action: AgentAction) {
+    setEditing({
+      ...action,
+      parameters: action.parameters.map((p) => ({ ...p })),
+    });
+    setConfigText(JSON.stringify(action.config ?? {}, null, 2));
+    setConfigError(null);
+  }
+
+  function commitEdit() {
+    if (!editing) return;
+    let parsedConfig: Record<string, unknown>;
+    try {
+      const raw = configText.trim() ? JSON.parse(configText) : {};
+      if (typeof raw !== "object" || Array.isArray(raw) || raw === null) {
+        throw new Error("Config must be a JSON object");
+      }
+      parsedConfig = raw as Record<string, unknown>;
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : "Invalid JSON");
+      return;
+    }
+    onChange({
+      ...data,
+      actions: data.actions.map((a) =>
+        a.id === editing.id ? { ...editing, config: parsedConfig } : a
+      ),
+    });
+    setEditing(null);
+  }
+
   function toggleConfirmation(actionId: string) {
     onChange({
       ...data,
       actions: data.actions.map((a) =>
         a.id === actionId
-          ? { ...a, requireConfirmation: !a.requireConfirmation }
+          ? { ...a, requires_confirmation: !a.requires_confirmation }
           : a
       ),
     });
@@ -105,20 +177,44 @@ export function StepActions({ data, onChange }: StepActionsProps) {
       id: `action-${Date.now()}`,
       name: "New Action",
       description: "Describe what this action does",
-      type: "api_call",
-      parameters: [
-        {
-          name: "param1",
-          type: "string",
-          required: true,
-          description: "Parameter description",
-        },
-      ],
-      requireConfirmation: true,
+      action_type: "api_call",
+      parameters: [],
+      config: {},
+      requires_confirmation: true,
     };
     onChange({
       ...data,
       actions: [...data.actions, newAction],
+    });
+    openEdit(newAction);
+  }
+
+  function addParam() {
+    if (!editing) return;
+    setEditing({
+      ...editing,
+      parameters: [
+        ...editing.parameters,
+        { name: "", type: "string", required: false, description: "" },
+      ],
+    });
+  }
+
+  function updateParam(index: number, updates: Partial<ActionParam>) {
+    if (!editing) return;
+    setEditing({
+      ...editing,
+      parameters: editing.parameters.map((p, i) =>
+        i === index ? { ...p, ...updates } : p
+      ),
+    });
+  }
+
+  function removeParam(index: number) {
+    if (!editing) return;
+    setEditing({
+      ...editing,
+      parameters: editing.parameters.filter((_, i) => i !== index),
     });
   }
 
@@ -129,7 +225,7 @@ export function StepActions({ data, onChange }: StepActionsProps) {
           <h2 className="text-lg font-semibold">Actions</h2>
           <p className="text-sm text-muted-foreground">
             Define the actions your agent can perform during conversations, such
-            as generating links, updating records, or fetching documents.
+            as calling APIs, looking up data, or handing off to a human.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={addAction}>
@@ -146,8 +242,8 @@ export function StepActions({ data, onChange }: StepActionsProps) {
           <div>
             <p className="text-sm font-medium">No actions configured</p>
             <p className="text-xs text-muted-foreground">
-              Add actions to let your agent perform tasks like generating payment
-              links or updating CRM records.
+              Add actions to let your agent perform tasks like calling external
+              APIs, looking up records, or escalating to a human agent.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={addAction}>
@@ -159,7 +255,7 @@ export function StepActions({ data, onChange }: StepActionsProps) {
 
       <div className="grid gap-4">
         {data.actions.map((action) => {
-          const typeConfig = TYPE_CONFIG[action.type];
+          const typeConfig = TYPE_CONFIG[action.action_type];
           return (
             <Card key={action.id}>
               <CardHeader>
@@ -187,6 +283,7 @@ export function StepActions({ data, onChange }: StepActionsProps) {
                       variant="ghost"
                       size="icon-sm"
                       className="text-muted-foreground"
+                      onClick={() => openEdit(action)}
                     >
                       <PencilIcon className="size-3.5" />
                     </Button>
@@ -207,24 +304,30 @@ export function StepActions({ data, onChange }: StepActionsProps) {
                     <Label className="text-xs text-muted-foreground mb-2">
                       Parameters
                     </Label>
-                    <div className="flex flex-wrap gap-2">
-                      {action.parameters.map((param) => (
-                        <div
-                          key={param.name}
-                          className="inline-flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1"
-                        >
-                          <span className="text-xs font-mono font-medium">
-                            {param.name}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {param.type}
-                          </span>
-                          {param.required && (
-                            <span className="text-[10px] text-red-500">*</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    {action.parameters.length === 0 ? (
+                      <p className="text-xs text-muted-foreground/70 italic">
+                        No parameters defined
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {action.parameters.map((param, idx) => (
+                          <div
+                            key={`${param.name}-${idx}`}
+                            className="inline-flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1"
+                          >
+                            <span className="text-xs font-mono font-medium">
+                              {param.name || "(unnamed)"}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {param.type}
+                            </span>
+                            {param.required && (
+                              <span className="text-[10px] text-red-500">*</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -232,7 +335,7 @@ export function StepActions({ data, onChange }: StepActionsProps) {
                 <div className="flex items-center gap-2">
                   <Switch
                     size="sm"
-                    checked={action.requireConfirmation}
+                    checked={action.requires_confirmation}
                     onCheckedChange={() => toggleConfirmation(action.id)}
                   />
                   <Label className="text-xs text-muted-foreground">
@@ -244,6 +347,209 @@ export function StepActions({ data, onChange }: StepActionsProps) {
           );
         })}
       </div>
+
+      <Dialog
+        open={editing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditing(null);
+            setConfigError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Action</DialogTitle>
+            <DialogDescription>
+              Configure the action&apos;s name, type, parameters, and execution
+              config.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editing && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="action-name">Name</Label>
+                <Input
+                  id="action-name"
+                  value={editing.name}
+                  onChange={(e) =>
+                    setEditing({ ...editing, name: e.target.value })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="action-description">Description</Label>
+                <Textarea
+                  id="action-description"
+                  value={editing.description}
+                  onChange={(e) =>
+                    setEditing({ ...editing, description: e.target.value })
+                  }
+                  rows={2}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select
+                  value={editing.action_type}
+                  onValueChange={(val) =>
+                    setEditing({
+                      ...editing,
+                      action_type: val as ActionType,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(TYPE_CONFIG) as ActionType[]).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {TYPE_CONFIG[t].label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Parameters</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addParam}
+                  >
+                    <PlusIcon className="size-3" />
+                    Add
+                  </Button>
+                </div>
+                {editing.parameters.length === 0 && (
+                  <p className="text-xs text-muted-foreground italic">
+                    No parameters
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {editing.parameters.map((param, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded-md border bg-muted/30 p-2 space-y-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Input
+                          placeholder="param_name"
+                          value={param.name}
+                          onChange={(e) =>
+                            updateParam(idx, { name: e.target.value })
+                          }
+                          className="flex-1 h-8 text-xs font-mono"
+                        />
+                        <Select
+                          value={param.type}
+                          onValueChange={(val) =>
+                            updateParam(idx, { type: val ?? "string" })
+                          }
+                        >
+                          <SelectTrigger size="sm" className="w-[100px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PARAM_TYPES.map((t) => (
+                              <SelectItem key={t} value={t}>
+                                {t}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex items-center gap-1">
+                          <Switch
+                            size="sm"
+                            checked={param.required}
+                            onCheckedChange={(checked) =>
+                              updateParam(idx, { required: !!checked })
+                            }
+                          />
+                          <span className="text-[10px] text-muted-foreground">
+                            req
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => removeParam(idx)}
+                        >
+                          <Trash2Icon className="size-3" />
+                        </Button>
+                      </div>
+                      <Input
+                        placeholder="Description"
+                        value={param.description}
+                        onChange={(e) =>
+                          updateParam(idx, { description: e.target.value })
+                        }
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="action-config">Config (JSON)</Label>
+                <Textarea
+                  id="action-config"
+                  value={configText}
+                  onChange={(e) => {
+                    setConfigText(e.target.value);
+                    setConfigError(null);
+                  }}
+                  rows={6}
+                  className="font-mono text-xs"
+                  placeholder='{"url": "https://...", "method": "POST"}'
+                />
+                {configError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {configError}
+                  </p>
+                )}
+                <p className="text-[10px] text-muted-foreground">
+                  Type-specific keys (e.g., url, method, headers for api_call;
+                  endpoint, query_template for data_lookup).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Switch
+                  size="sm"
+                  checked={editing.requires_confirmation}
+                  onCheckedChange={(checked) =>
+                    setEditing({
+                      ...editing,
+                      requires_confirmation: !!checked,
+                    })
+                  }
+                />
+                <Label className="text-xs text-muted-foreground">
+                  Require confirmation before execution
+                </Label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>
+              Cancel
+            </DialogClose>
+            <Button onClick={commitEdit}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
