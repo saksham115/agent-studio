@@ -438,7 +438,8 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           identity: {
             agentName: agent.name || "",
             personaName: agent.persona || "",
-            customer: "",
+            // The wizard's "customer" field is stored in agent.description.
+            customer: agent.description || "",
             systemPrompt: agent.system_prompt || "",
             languages: agent.languages || [],
             tone: "",
@@ -478,12 +479,18 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
       if (formData.channels.whatsapp.enabled) enabledChannels.push("whatsapp");
       if (formData.channels.chatbot.enabled) enabledChannels.push("chatbot");
 
-      // Create or update the agent
+      // Create or update the agent.
+      //
+      // The wizard's "customer" dropdown is stored in the agent's
+      // `description` column — there is no separate `customer` field on
+      // the backend Agent model, and `prompt_builder._build_system_prompt`
+      // already substitutes `{{customer_name}}` from `agent.description`.
+      // (See backend/app/services/prompt_builder.py:79.)
       let agentId = savedAgentId;
       const agentPayload = {
         name: formData.identity.agentName,
         persona: formData.identity.personaName,
-        customer: formData.identity.customer,
+        description: formData.identity.customer,
         system_prompt: formData.identity.systemPrompt,
         languages: formData.identity.languages,
         tone: formData.identity.tone,
