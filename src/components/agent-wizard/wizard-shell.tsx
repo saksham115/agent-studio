@@ -624,9 +624,38 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
 
       // Wait for all saves
       const results = await Promise.allSettled(savePromises);
-      const failures = results.filter((r) => r.status === "rejected");
+      const failures = results.filter(
+        (r): r is PromiseRejectedResult => r.status === "rejected"
+      );
       if (failures.length > 0) {
-        console.warn(`${failures.length} sub-resource save(s) failed:`, failures);
+        // Surface sub-resource save failures instead of silently swallowing
+        // them. Previously the wizard would redirect with "Saved" even when
+        // a guardrail/action/channel update had 422'd or 5xx'd, leaving the
+        // user wondering why their toggle didn't take effect.
+        console.warn(
+          `${failures.length} sub-resource save(s) failed:`,
+          failures
+        );
+        const reasons = failures
+          .map((f) => {
+            const r = f.reason;
+            if (r instanceof Error) return r.message;
+            if (typeof r === "string") return r;
+            try {
+              return JSON.stringify(r);
+            } catch {
+              return String(r);
+            }
+          })
+          .filter(Boolean);
+        const summary =
+          reasons.length > 0
+            ? reasons.slice(0, 3).join(" • ")
+            : "see browser console for details";
+        setSaveError(
+          `${failures.length} sub-resource save(s) failed — ${summary}`
+        );
+        return; // do not redirect; let the user see the error and retry
       }
 
       // Redirect to the agent detail page
