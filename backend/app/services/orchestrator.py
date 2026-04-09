@@ -243,15 +243,19 @@ class ConversationOrchestrator:
         await self.db.flush()
 
         # ---- 5. Knowledge-base retrieval ---------------------------------
-        kb_context: list[str] = []
+        # kb_service.search returns a list[str] of chunk contents ordered by
+        # similarity. build_system_prompt expects a single string, so join
+        # them with a blank line so each chunk reads as its own paragraph.
+        kb_chunks: list[str] = []
         try:
-            kb_context = await self.kb_service.search(agent.id, user_message, top_k=5)
+            kb_chunks = await self.kb_service.search(agent.id, user_message, top_k=5)
         except Exception:
             logger.warning(
                 "Knowledge base search failed for agent %s — continuing without KB context",
                 agent.id,
                 exc_info=True,
             )
+        kb_context = "\n\n".join(kb_chunks)
 
         # ---- 6. Build prompt ---------------------------------------------
         current_state: State | None = None
