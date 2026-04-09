@@ -268,6 +268,11 @@ export const channelApi = {
 export const guardrailApi = {
   list: (agentId: string) =>
     apiFetch<any>(`/agents/${agentId}/guardrails`),
+  create: (agentId: string, data: any) =>
+    apiFetch<any>(`/agents/${agentId}/guardrails`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
   generate: (agentId: string) =>
     apiFetch<any>(`/agents/${agentId}/guardrails/generate`, {
       method: "POST",
@@ -277,6 +282,10 @@ export const guardrailApi = {
     apiFetch<any>(`/agents/${agentId}/guardrails`, {
       method: "PUT",
       body: JSON.stringify(data),
+    }),
+  delete: (agentId: string, guardrailId: string) =>
+    apiFetch<void>(`/agents/${agentId}/guardrails/${guardrailId}`, {
+      method: "DELETE",
     }),
 };
 

@@ -10,6 +10,7 @@ from app.api.deps import get_current_user, get_db, verify_agent_ownership
 from app.models.guardrail import Guardrail
 from app.schemas.auth import CurrentUser
 from app.schemas.guardrail import (
+    GuardrailCreate,
     GuardrailGenerateRequest,
     GuardrailListResponse,
     GuardrailResponse,
@@ -149,6 +150,62 @@ Return ONLY the JSON array, no other text or markdown formatting."""
         )
 
     return await _fetch_all_guardrails(agent_id, db)
+
+
+@router.post(
+    "",
+    response_model=GuardrailResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_guardrail(
+    agent_id: uuid.UUID,
+    guardrail_in: GuardrailCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> GuardrailResponse:
+    """Create a new guardrail for an agent.
+
+    Used by the wizard to persist hand-authored rules; auto-generated
+    rules go through the ``/generate`` endpoint instead.
+    """
+    await verify_agent_ownership(agent_id, db, current_user)
+
+    guardrail = Guardrail(
+        agent_id=agent_id,
+        is_auto_generated=False,
+        **guardrail_in.model_dump(),
+    )
+    db.add(guardrail)
+    await db.flush()
+
+    return GuardrailResponse.model_validate(guardrail)
+
+
+@router.delete(
+    "/{guardrail_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_guardrail(
+    agent_id: uuid.UUID,
+    guardrail_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> None:
+    """Delete a guardrail from an agent."""
+    await verify_agent_ownership(agent_id, db, current_user)
+
+    stmt = select(Guardrail).where(Guardrail.id == guardrail_id)
+    result = await db.execute(stmt)
+    guardrail = result.scalar_one_or_none()
+
+    if not guardrail:
+        raise HTTPException(status_code=404, detail="Guardrail not found")
+    if guardrail.agent_id != agent_id:
+        raise HTTPException(
+            status_code=404, detail="Guardrail not found for this agent"
+        )
+
+    await db.delete(guardrail)
 
 
 @router.put(

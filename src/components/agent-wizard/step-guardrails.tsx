@@ -39,7 +39,9 @@ import {
   ShieldCheckIcon,
   ShieldAlertIcon,
   ShieldIcon,
+  Loader2Icon,
 } from "lucide-react";
+import { guardrailApi } from "@/lib/api";
 
 interface Guardrail {
   id: string;
@@ -57,7 +59,35 @@ interface StepGuardrailsData {
 interface StepGuardrailsProps {
   data: StepGuardrailsData;
   onChange: (data: StepGuardrailsData) => void;
+  /**
+   * Backend agent UUID, if the wizard has already persisted the agent.
+   * When set, autoGenerate hits the server-side `/guardrails/generate`
+   * endpoint and the resulting rows come back with real DB UUIDs.
+   * When null (new agent that hasn't been saved yet) autoGenerate falls
+   * back to a hardcoded local seed list.
+   */
+  agentId?: string | null;
 }
+
+// Map backend guardrail_type / action to the UI category / severity used
+// in this component. Lossy for input/output (collapse to custom) and for
+// safety/anti_misselling (no backend equivalent — collapse to custom on
+// the way out, can't recover on the way back).
+const BACKEND_TO_UI_TYPE: Record<string, Guardrail["category"]> = {
+  compliance: "compliance",
+  pii: "pii",
+  topic: "topic_boundary",
+  custom: "custom",
+  input: "custom",
+  output: "custom",
+};
+
+const BACKEND_TO_UI_SEVERITY: Record<string, Guardrail["severity"]> = {
+  block: "block",
+  warn: "warn",
+  log: "log",
+  redirect: "warn",
+};
 
 const CATEGORY_CONFIG: Record<
   Guardrail["category"],
@@ -113,8 +143,10 @@ const SEVERITY_CONFIG: Record<
   },
 };
 
-export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
+export function StepGuardrails({ data, onChange, agentId }: StepGuardrailsProps) {
   const [editingGuardrail, setEditingGuardrail] = useState<Guardrail | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   function updateGuardrail(id: string, updates: Partial<Guardrail>) {
     onChange({
@@ -148,58 +180,95 @@ export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
     setEditingGuardrail({ ...newRule });
   }
 
-  function autoGenerate() {
-    const autoRules: Guardrail[] = [
-      {
-        id: "auto-1",
-        name: "IRDAI Compliance",
-        rule: "Always mention cooling-off period and free-look period when discussing policy purchase",
-        category: "compliance",
-        severity: "block",
+  const SEED_RULES: Guardrail[] = [
+    {
+      id: "auto-1",
+      name: "IRDAI Compliance",
+      rule: "Always mention cooling-off period and free-look period when discussing policy purchase",
+      category: "compliance",
+      severity: "block",
+      enabled: true,
+    },
+    {
+      id: "auto-2",
+      name: "PII Protection",
+      rule: "Never repeat full Aadhaar or PAN number back to the customer",
+      category: "pii",
+      severity: "block",
+      enabled: true,
+    },
+    {
+      id: "auto-3",
+      name: "Topic Boundary",
+      rule: "Only discuss insurance products available in the knowledge base",
+      category: "topic_boundary",
+      severity: "warn",
+      enabled: true,
+    },
+    {
+      id: "auto-4",
+      name: "Anti-Misselling",
+      rule: "Never guarantee returns on ULIP or investment-linked products",
+      category: "safety",
+      severity: "block",
+      enabled: true,
+    },
+    {
+      id: "auto-5",
+      name: "Escalation Trigger",
+      rule: "Escalate to human agent when customer explicitly requests or shows frustration",
+      category: "safety",
+      severity: "warn",
+      enabled: true,
+    },
+    {
+      id: "auto-6",
+      name: "Consent Required",
+      rule: "Collect explicit consent before storing personal information",
+      category: "compliance",
+      severity: "block",
+      enabled: true,
+    },
+  ];
+
+  async function autoGenerate() {
+    setGenerateError(null);
+
+    // No persisted agent yet — fall back to the local seed list. Save the
+    // agent first to enable real LLM-driven generation.
+    if (!agentId) {
+      onChange({ ...data, guardrails: SEED_RULES });
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const response = await guardrailApi.generate(agentId);
+      const items: Array<Record<string, unknown>> = response?.items ?? [];
+      const fromBackend: Guardrail[] = items.map((g) => ({
+        id: String(g.id),
+        name: (g.name as string | undefined) ?? "",
+        rule: (g.rule as string | undefined) ?? "",
+        category: BACKEND_TO_UI_TYPE[(g.guardrail_type as string) ?? "custom"] ?? "custom",
+        severity: BACKEND_TO_UI_SEVERITY[(g.action as string) ?? "block"] ?? "warn",
+        // /generate writes rows as inactive drafts; surface them as enabled
+        // in the wizard so the user can review and toggle off as needed.
         enabled: true,
-      },
-      {
-        id: "auto-2",
-        name: "PII Protection",
-        rule: "Never repeat full Aadhaar or PAN number back to the customer",
-        category: "pii",
-        severity: "block",
-        enabled: true,
-      },
-      {
-        id: "auto-3",
-        name: "Topic Boundary",
-        rule: "Only discuss insurance products available in the knowledge base",
-        category: "topic_boundary",
-        severity: "warn",
-        enabled: true,
-      },
-      {
-        id: "auto-4",
-        name: "Anti-Misselling",
-        rule: "Never guarantee returns on ULIP or investment-linked products",
-        category: "safety",
-        severity: "block",
-        enabled: true,
-      },
-      {
-        id: "auto-5",
-        name: "Escalation Trigger",
-        rule: "Escalate to human agent when customer explicitly requests or shows frustration",
-        category: "safety",
-        severity: "warn",
-        enabled: true,
-      },
-      {
-        id: "auto-6",
-        name: "Consent Required",
-        rule: "Collect explicit consent before storing personal information",
-        category: "compliance",
-        severity: "block",
-        enabled: true,
-      },
-    ];
-    onChange({ ...data, guardrails: autoRules });
+      }));
+      // Merge with anything the user already has, replacing duplicates by name.
+      const existingByName = new Map(data.guardrails.map((g) => [g.name, g]));
+      for (const g of fromBackend) {
+        existingByName.set(g.name, g);
+      }
+      onChange({ ...data, guardrails: Array.from(existingByName.values()) });
+    } catch (err) {
+      console.error("Failed to generate guardrails:", err);
+      setGenerateError(
+        err instanceof Error ? err.message : "Failed to generate guardrails"
+      );
+    } finally {
+      setGenerating(false);
+    }
   }
 
   const enabledCount = data.guardrails.filter((g) => g.enabled).length;
@@ -217,10 +286,26 @@ export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
             rules are enforced during every conversation.
           </p>
         </div>
-        <Button variant="default" size="sm" onClick={autoGenerate}>
-          <SparklesIcon className="size-3.5" />
-          Auto-generate
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={autoGenerate}
+            disabled={generating}
+          >
+            {generating ? (
+              <Loader2Icon className="size-3.5 animate-spin" />
+            ) : (
+              <SparklesIcon className="size-3.5" />
+            )}
+            {generating ? "Generating..." : "Auto-generate"}
+          </Button>
+          {generateError && (
+            <span className="text-[11px] text-red-600 dark:text-red-400">
+              {generateError}
+            </span>
+          )}
+        </div>
       </div>
 
       {data.guardrails.length > 0 && (
@@ -269,9 +354,18 @@ export function StepGuardrails({ data, onChange }: StepGuardrailsProps) {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="default" size="sm" onClick={autoGenerate}>
-              <SparklesIcon className="size-3.5" />
-              Auto-generate Rules
+            <Button
+              variant="default"
+              size="sm"
+              onClick={autoGenerate}
+              disabled={generating}
+            >
+              {generating ? (
+                <Loader2Icon className="size-3.5 animate-spin" />
+              ) : (
+                <SparklesIcon className="size-3.5" />
+              )}
+              {generating ? "Generating..." : "Auto-generate Rules"}
             </Button>
             <Button variant="outline" size="sm" onClick={addCustomRule}>
               <PlusIcon className="size-3.5" />
