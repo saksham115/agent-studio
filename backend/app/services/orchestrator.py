@@ -183,19 +183,6 @@ class ConversationOrchestrator:
                 f"Agent {agent.id} is not published (status={agent.status.value})"
             )
 
-        # Check max turns
-        if agent.max_turns and conversation.message_count >= agent.max_turns:
-            conversation.status = ConversationStatus.COMPLETED
-            conversation.ended_at = datetime.now(timezone.utc)
-            await self.db.flush()
-            fallback = agent.fallback_message or "This conversation has reached its maximum length."
-            return OrchestratorResponse(
-                message=fallback,
-                conversation_id=conversation_id,
-                state=await self._state_name(conversation.current_state_id),
-                status=ConversationStatus.COMPLETED.value,
-            )
-
         # ---- 3. Input guardrails -----------------------------------------
         guardrails = await self._load_guardrails(agent.id)
         input_guardrails = [g for g in guardrails if g.is_active]

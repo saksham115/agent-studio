@@ -407,13 +407,6 @@ class PromptBuilder:
                 f"respond with: \"{agent.escalation_message}\""
             )
 
-        if agent.max_turns:
-            parts.append(
-                f"\nThe overall conversation is limited to {agent.max_turns} "
-                f"turns. If you are approaching this limit, proactively "
-                f"summarize and conclude the conversation."
-            )
-
         return "\n".join(parts)
 
     @staticmethod
