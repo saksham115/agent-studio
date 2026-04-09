@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -54,10 +54,12 @@ interface WizardFormData {
     documents: {
       id: string;
       name: string;
-      type: "PDF" | "DOCX" | "CSV";
+      type: "PDF" | "TXT" | "CSV";
       category: string;
-      status: "processing" | "ready";
-      size: string;
+      status: "pending" | "processing" | "ready" | "failed";
+      size: number;
+      backendId?: string;
+      errorMessage?: string;
     }[];
     structuredSources: {
       id: string;
@@ -253,15 +255,34 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
   const [loadingAgent, setLoadingAgent] = useState(!!initialAgentId);
   const router = useRouter();
 
+  // Track pending File objects for KB upload (keyed by temp document ID)
+  const pendingFilesRef = useRef<Map<string, File>>(new Map());
+  // Track backend-saved documents that were removed in the UI
+  const deletedDocIdsRef = useRef<Set<string>>(new Set());
+
+  const handleFileAdded = useCallback((tempId: string, file: File) => {
+    pendingFilesRef.current.set(tempId, file);
+  }, []);
+
+  const handleFileRemoved = useCallback((tempId: string) => {
+    if (pendingFilesRef.current.has(tempId)) {
+      pendingFilesRef.current.delete(tempId);
+    } else {
+      // It's a backend-saved document — queue for deletion on save
+      deletedDocIdsRef.current.add(tempId);
+    }
+  }, []);
+
   // Load existing agent data when editing
   useEffect(() => {
     if (!initialAgentId) return;
 
     async function loadAgent() {
       try {
-        const [agent, channelsRes] = await Promise.all([
+        const [agent, channelsRes, kbRes] = await Promise.all([
           agentApi.get(initialAgentId!),
           channelApi.list(initialAgentId!).catch(() => ({ items: [] })),
+          kbApi.listDocuments(initialAgentId!).catch(() => ({ items: [] })),
         ]);
 
         const channels = channelsRes?.items ?? [];
@@ -294,6 +315,18 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           }
         }
 
+        // Map backend KB documents to UI format
+        const kbDocuments = (kbRes?.items ?? []).map((doc: any) => ({
+          id: doc.id,
+          name: doc.filename,
+          type: (doc.source_type || "pdf").toUpperCase() as "PDF" | "TXT" | "CSV",
+          category: "Product Brochure",
+          status: doc.status === "completed" ? ("ready" as const) : doc.status === "failed" ? ("failed" as const) : ("processing" as const),
+          size: doc.file_size_bytes || 0,
+          backendId: doc.id,
+          errorMessage: doc.error_message,
+        }));
+
         setFormData((prev) => ({
           ...prev,
           identity: {
@@ -303,6 +336,10 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
             systemPrompt: agent.system_prompt || "",
             languages: agent.languages || [],
             tone: "",
+          },
+          knowledgeBase: {
+            documents: kbDocuments,
+            structuredSources: [],
           },
           channels: channelsState,
         }));
@@ -395,6 +432,41 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
         );
       }
 
+      // Upload pending KB documents
+      for (const [tempId, file] of pendingFilesRef.current.entries()) {
+        savePromises.push(
+          kbApi.uploadDocument(agentId!, file).then((response: any) => {
+            pendingFilesRef.current.delete(tempId);
+            setFormData((prev) => ({
+              ...prev,
+              knowledgeBase: {
+                ...prev.knowledgeBase,
+                documents: prev.knowledgeBase.documents.map((doc) =>
+                  doc.id === tempId
+                    ? {
+                        ...doc,
+                        id: response.id,
+                        backendId: response.id,
+                        status: response.status === "completed" ? ("ready" as const) : response.status === "failed" ? ("failed" as const) : ("processing" as const),
+                        errorMessage: response.error_message,
+                      }
+                    : doc
+                ),
+              },
+            }));
+          })
+        );
+      }
+
+      // Delete KB documents that were removed in the UI
+      for (const docId of deletedDocIdsRef.current) {
+        savePromises.push(
+          kbApi.deleteDocument(agentId!, docId).then(() => {
+            deletedDocIdsRef.current.delete(docId);
+          })
+        );
+      }
+
       // Wait for all saves
       const results = await Promise.allSettled(savePromises);
       const failures = results.filter((r) => r.status === "rejected");
@@ -428,6 +500,8 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
             onChange={(knowledgeBase) =>
               setFormData({ ...formData, knowledgeBase })
             }
+            onFileAdded={handleFileAdded}
+            onFileRemoved={handleFileRemoved}
           />
         );
       case 3:
