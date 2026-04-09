@@ -74,14 +74,21 @@ interface WizardFormData {
       id: string;
       name: string;
       description: string;
-      type: "db_update" | "link_generation" | "doc_fetch" | "api_call" | "notification";
+      action_type:
+        | "api_call"
+        | "tool_call"
+        | "handoff"
+        | "data_lookup"
+        | "send_message"
+        | "custom";
       parameters: {
         name: string;
         type: string;
         required: boolean;
         description: string;
       }[];
-      requireConfirmation: boolean;
+      config: Record<string, unknown>;
+      requires_confirmation: boolean;
     }[];
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -259,6 +266,8 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
   const pendingFilesRef = useRef<Map<string, File>>(new Map());
   // Track backend-saved documents that were removed in the UI
   const deletedDocIdsRef = useRef<Set<string>>(new Set());
+  // Track backend-saved actions that were removed in the UI
+  const deletedActionIdsRef = useRef<Set<string>>(new Set());
 
   const handleFileAdded = useCallback((tempId: string, file: File) => {
     pendingFilesRef.current.set(tempId, file);
@@ -279,10 +288,11 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
 
     async function loadAgent() {
       try {
-        const [agent, channelsRes, kbRes] = await Promise.all([
+        const [agent, channelsRes, kbRes, actionsRes] = await Promise.all([
           agentApi.get(initialAgentId!),
           channelApi.list(initialAgentId!).catch(() => ({ items: [] })),
           kbApi.listDocuments(initialAgentId!).catch(() => ({ items: [] })),
+          actionApi.list(initialAgentId!).catch(() => ({ items: [] })),
         ]);
 
         const channels = channelsRes?.items ?? [];
@@ -327,6 +337,28 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           errorMessage: doc.error_message,
         }));
 
+        // Map backend actions to UI format
+        const actionItems = (actionsRes?.items ?? []) as Array<
+          Record<string, unknown>
+        >;
+        const actions = actionItems.map((a) => {
+          const inputParams = (a.input_params ?? null) as
+            | { fields?: unknown }
+            | null;
+          const fields = Array.isArray(inputParams?.fields)
+            ? (inputParams!.fields as WizardFormData["actions"]["actions"][number]["parameters"])
+            : [];
+          return {
+            id: String(a.id),
+            name: (a.name as string | undefined) ?? "",
+            description: (a.description as string | undefined) ?? "",
+            action_type: a.action_type as WizardFormData["actions"]["actions"][number]["action_type"],
+            parameters: fields,
+            config: (a.config as Record<string, unknown> | undefined) ?? {},
+            requires_confirmation: !!a.requires_confirmation,
+          };
+        });
+
         setFormData((prev) => ({
           ...prev,
           identity: {
@@ -341,6 +373,7 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
             documents: kbDocuments,
             structuredSources: [],
           },
+          actions: { actions },
           channels: channelsState,
         }));
       } catch (err) {
@@ -393,19 +426,29 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
       // Save remaining configuration in parallel (best-effort)
       const savePromises: Promise<any>[] = [];
 
-      // Save actions
-      if (formData.actions.actions.length > 0) {
-        for (const action of formData.actions.actions) {
-          savePromises.push(
-            actionApi.create(agentId, {
-              name: action.name,
-              description: action.description,
-              type: action.type,
-              parameters: action.parameters,
-              requireConfirmation: action.requireConfirmation,
-            })
-          );
+      // Save actions — create new ones, update existing, delete removed
+      for (const action of formData.actions.actions) {
+        const payload = {
+          name: action.name,
+          description: action.description,
+          action_type: action.action_type,
+          config: action.config ?? {},
+          input_params: { fields: action.parameters },
+          requires_confirmation: action.requires_confirmation,
+        };
+        const isNew = action.id.startsWith("action-");
+        if (isNew) {
+          savePromises.push(actionApi.create(agentId, payload));
+        } else {
+          savePromises.push(actionApi.update(agentId, action.id, payload));
         }
+      }
+      for (const actionId of deletedActionIdsRef.current) {
+        savePromises.push(
+          actionApi.delete(agentId!, actionId).then(() => {
+            deletedActionIdsRef.current.delete(actionId);
+          })
+        );
       }
 
       // Save state diagram
@@ -508,7 +551,16 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
         return (
           <StepActions
             data={formData.actions}
-            onChange={(actions) => setFormData({ ...formData, actions })}
+            onChange={(actions) => {
+              // Track removed backend-persisted actions for deletion on save
+              const nextIds = new Set(actions.actions.map((a) => a.id));
+              for (const a of formData.actions.actions) {
+                if (!nextIds.has(a.id) && !a.id.startsWith("action-")) {
+                  deletedActionIdsRef.current.add(a.id);
+                }
+              }
+              setFormData({ ...formData, actions });
+            }}
           />
         );
       case 4:
