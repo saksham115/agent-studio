@@ -5,8 +5,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  type Node,
-  type Edge,
   type NodeTypes,
   type NodeProps,
   useNodesState,
@@ -30,16 +28,14 @@ import {
   MaximizeIcon,
   MinimizeIcon,
 } from "lucide-react";
+import type {
+  StateNodeData,
+  WizardStateDiagram,
+  WizardStateEdge,
+  WizardStateNode,
+} from "@/lib/state-diagram-transform";
 
-interface StateNodeData {
-  label: string;
-  description: string;
-  maxTurns: number;
-  nodeType: "start" | "normal" | "terminal" | "branch";
-  [key: string]: unknown;
-}
-
-type StateNode = Node<StateNodeData>;
+type StateNode = WizardStateNode;
 
 const HEADER_COLORS: Record<string, string> = {
   start: "bg-primary dark:bg-primary/90",
@@ -115,6 +111,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Greeting",
       description: "Welcome the customer and introduce the agent",
+      instructions: "",
       maxTurns: 2,
       nodeType: "start",
     },
@@ -126,6 +123,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Need Discovery",
       description: "Understand customer requirements, family details, and budget",
+      instructions: "",
       maxTurns: 8,
       nodeType: "normal",
     },
@@ -137,6 +135,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Product Pitch",
       description: "Present suitable insurance products from the knowledge base",
+      instructions: "",
       maxTurns: 6,
       nodeType: "normal",
     },
@@ -148,6 +147,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Objection Handling",
       description: "Address customer concerns about pricing, coverage, or terms",
+      instructions: "",
       maxTurns: 10,
       nodeType: "normal",
     },
@@ -159,6 +159,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Quote Generation",
       description: "Generate premium quote and share payment link",
+      instructions: "",
       maxTurns: 4,
       nodeType: "normal",
     },
@@ -170,6 +171,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Document Collection",
       description: "Collect KYC documents: Aadhaar, PAN, photos, medical reports",
+      instructions: "",
       maxTurns: 6,
       nodeType: "normal",
     },
@@ -181,6 +183,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Closure",
       description: "Confirm policy issuance and provide next steps",
+      instructions: "",
       maxTurns: 3,
       nodeType: "terminal",
     },
@@ -192,6 +195,7 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Follow-up",
       description: "Schedule callback or send information for later decision",
+      instructions: "",
       maxTurns: 4,
       nodeType: "branch",
     },
@@ -203,13 +207,14 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Escalation",
       description: "Transfer to human agent when requested or frustration detected",
+      instructions: "",
       maxTurns: 2,
       nodeType: "terminal",
     },
   },
 ];
 
-const INITIAL_EDGES: Edge[] = [
+const INITIAL_EDGES: WizardStateEdge[] = [
   {
     id: "e-greeting-need",
     source: "greeting",
@@ -322,14 +327,9 @@ const INITIAL_EDGES: Edge[] = [
   },
 ];
 
-interface StepStateDiagramData {
-  nodes: StateNode[];
-  edges: Edge[];
-}
-
 interface StepStateDiagramProps {
-  data: StepStateDiagramData;
-  onChange: (data: StepStateDiagramData) => void;
+  data: WizardStateDiagram;
+  onChange: (data: WizardStateDiagram) => void;
 }
 
 export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
@@ -369,8 +369,8 @@ export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
   );
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
-      setSelectedNode(node as StateNode);
+    (_: React.MouseEvent, node: StateNode) => {
+      setSelectedNode(node);
       setPanelOpen(true);
     },
     []
@@ -388,6 +388,7 @@ export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
       data: {
         label: "New State",
         description: "Describe this state",
+        instructions: "",
         maxTurns: 5,
         nodeType: "normal",
       },

@@ -31,6 +31,11 @@ import {
   channelApi,
   guardrailApi,
 } from "@/lib/api";
+import {
+  fromBackend as stateDiagramFromBackend,
+  toBackend as stateDiagramToBackend,
+  type WizardStateDiagram,
+} from "@/lib/state-diagram-transform";
 
 const STEPS = [
   { id: 1, title: "Identity & Prompt", icon: UserIcon },
@@ -85,11 +90,7 @@ interface WizardFormData {
       requires_confirmation: boolean;
     }[];
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  stateDiagram: {
-    nodes: any[];
-    edges: any[];
-  };
+  stateDiagram: WizardStateDiagram;
   channels: {
     voice: {
       enabled: boolean;
@@ -282,11 +283,14 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
 
     async function loadAgent() {
       try {
-        const [agent, channelsRes, kbRes, actionsRes] = await Promise.all([
+        const [agent, channelsRes, kbRes, actionsRes, stateRes] = await Promise.all([
           agentApi.get(initialAgentId!),
           channelApi.list(initialAgentId!).catch(() => ({ items: [] })),
           kbApi.listDocuments(initialAgentId!).catch(() => ({ items: [] })),
           actionApi.list(initialAgentId!).catch(() => ({ items: [] })),
+          stateApi
+            .get(initialAgentId!)
+            .catch(() => ({ nodes: [], edges: [] })),
         ]);
 
         const channels = channelsRes?.items ?? [];
@@ -380,6 +384,7 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
             structuredSources: [],
           },
           actions: { actions },
+          stateDiagram: stateDiagramFromBackend(stateRes),
           channels: channelsState,
         }));
       } catch (err) {
@@ -469,12 +474,12 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
         );
       }
 
-      // Save state diagram
-      if (formData.stateDiagram.nodes.length > 0) {
-        savePromises.push(
-          stateApi.save(agentId, formData.stateDiagram)
-        );
-      }
+      // Save state diagram. Always send — an empty diagram is a valid
+      // "stateless agent" payload, and the guard would prevent users
+      // from clearing all states once they've added some.
+      savePromises.push(
+        stateApi.save(agentId, stateDiagramToBackend(formData.stateDiagram))
+      );
 
       // Save channel configurations
       for (const [channelType, channelData] of Object.entries(formData.channels)) {
