@@ -434,7 +434,7 @@ function ConfigurationTab({
     },
     {
       title: "Actions",
-      description: `${configData.actionsCount} actions configured (API calls, data lookups, handoffs, tools)`,
+      description: `${configData.actionsCount} actions configured (API calls and data lookups)`,
       icon: Zap,
       detail: `${configData.actionsCount} actions`,
       color: "text-chart-3",

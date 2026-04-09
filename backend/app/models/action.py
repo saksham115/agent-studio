@@ -15,11 +15,7 @@ if TYPE_CHECKING:
 
 class ActionType(str, enum.Enum):
     API_CALL = "api_call"
-    TOOL_CALL = "tool_call"
-    HANDOFF = "handoff"
     DATA_LOOKUP = "data_lookup"
-    SEND_MESSAGE = "send_message"
-    CUSTOM = "custom"
 
 
 class Action(Base):

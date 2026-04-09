@@ -74,13 +74,7 @@ interface WizardFormData {
       id: string;
       name: string;
       description: string;
-      action_type:
-        | "api_call"
-        | "tool_call"
-        | "handoff"
-        | "data_lookup"
-        | "send_message"
-        | "custom";
+      action_type: "api_call" | "data_lookup";
       parameters: {
         name: string;
         type: string;
@@ -337,23 +331,35 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           errorMessage: doc.error_message,
         }));
 
-        // Map backend actions to UI format
+        // Map backend actions to UI format. The backend stores input_params
+        // as a flat dict { paramName: { type, description, required } } —
+        // see prompt_builder._build_input_schema. Convert to the UI's
+        // ordered array form here.
         const actionItems = (actionsRes?.items ?? []) as Array<
           Record<string, unknown>
         >;
         const actions = actionItems.map((a) => {
-          const inputParams = (a.input_params ?? null) as
-            | { fields?: unknown }
-            | null;
-          const fields = Array.isArray(inputParams?.fields)
-            ? (inputParams!.fields as WizardFormData["actions"]["actions"][number]["parameters"])
+          const rawParams = (a.input_params ?? null) as Record<
+            string,
+            Record<string, unknown> | null
+          > | null;
+          const parameters = rawParams
+            ? Object.entries(rawParams)
+                .filter(([, def]) => def && typeof def === "object")
+                .map(([name, def]) => ({
+                  name,
+                  type: ((def as Record<string, unknown>)?.type as string) ?? "string",
+                  description:
+                    ((def as Record<string, unknown>)?.description as string) ?? "",
+                  required: !!(def as Record<string, unknown>)?.required,
+                }))
             : [];
           return {
             id: String(a.id),
             name: (a.name as string | undefined) ?? "",
             description: (a.description as string | undefined) ?? "",
             action_type: a.action_type as WizardFormData["actions"]["actions"][number]["action_type"],
-            parameters: fields,
+            parameters,
             config: (a.config as Record<string, unknown> | undefined) ?? {},
             requires_confirmation: !!a.requires_confirmation,
           };
@@ -426,14 +432,26 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
       // Save remaining configuration in parallel (best-effort)
       const savePromises: Promise<any>[] = [];
 
-      // Save actions — create new ones, update existing, delete removed
+      // Save actions — create new ones, update existing, delete removed.
+      // The backend stores input_params as a flat dict keyed by parameter
+      // name (consumed by prompt_builder._build_input_schema), so collapse
+      // the UI's ordered array into that shape here.
       for (const action of formData.actions.actions) {
+        const inputParams: Record<string, Record<string, unknown>> = {};
+        for (const p of action.parameters) {
+          if (!p.name) continue;
+          inputParams[p.name] = {
+            type: p.type,
+            description: p.description,
+            required: p.required,
+          };
+        }
         const payload = {
           name: action.name,
           description: action.description,
           action_type: action.action_type,
           config: action.config ?? {},
-          input_params: { fields: action.parameters },
+          input_params: inputParams,
           requires_confirmation: action.requires_confirmation,
         };
         const isNew = action.id.startsWith("action-");

@@ -26,8 +26,7 @@ async def create_action(
     """Create a new action for an agent.
 
     Actions define operations the agent can perform during conversations,
-    such as API calls, data lookups, handoffs to human agents, or custom
-    tool invocations.
+    currently API calls and data lookups.
     """
     await verify_agent_ownership(agent_id, db, current_user)
 
