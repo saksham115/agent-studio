@@ -8,7 +8,7 @@ class ActionCreate(BaseModel):
     """Schema for creating a new action."""
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
-    action_type: str = Field(..., pattern="^(api_call|tool_call|handoff|data_lookup|send_message|custom)$")
+    action_type: str = Field(..., pattern="^(api_call|data_lookup)$")
     config: dict = Field(default_factory=dict)
     input_params: dict | None = None
     output_schema: dict | None = None
@@ -19,7 +19,7 @@ class ActionUpdate(BaseModel):
     """Schema for updating an existing action."""
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
-    action_type: str | None = Field(default=None, pattern="^(api_call|tool_call|handoff|data_lookup|send_message|custom)$")
+    action_type: str | None = Field(default=None, pattern="^(api_call|data_lookup)$")
     config: dict | None = None
     input_params: dict | None = None
     output_schema: dict | None = None

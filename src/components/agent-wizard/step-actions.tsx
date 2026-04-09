@@ -36,21 +36,11 @@ import {
   Trash2Icon,
   PencilIcon,
   GlobeIcon,
-  WrenchIcon,
-  UserPlusIcon,
   SearchIcon,
-  SendIcon,
-  SparklesIcon,
   CheckCircle2Icon,
 } from "lucide-react";
 
-export type ActionType =
-  | "api_call"
-  | "tool_call"
-  | "handoff"
-  | "data_lookup"
-  | "send_message"
-  | "custom";
+export type ActionType = "api_call" | "data_lookup";
 
 export interface ActionParam {
   name: string;
@@ -88,31 +78,10 @@ const TYPE_CONFIG: Record<
       "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
     icon: <GlobeIcon className="size-4" />,
   },
-  tool_call: {
-    label: "Tool Call",
-    color: "bg-chart-4/10 text-chart-4 border-chart-4/20",
-    icon: <WrenchIcon className="size-4" />,
-  },
-  handoff: {
-    label: "Handoff",
-    color:
-      "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
-    icon: <UserPlusIcon className="size-4" />,
-  },
   data_lookup: {
     label: "Data Lookup",
     color: "bg-chart-2/10 text-chart-2 border-chart-2/20",
     icon: <SearchIcon className="size-4" />,
-  },
-  send_message: {
-    label: "Send Message",
-    color: "bg-primary/10 text-primary border-primary/20",
-    icon: <SendIcon className="size-4" />,
-  },
-  custom: {
-    label: "Custom",
-    color: "bg-muted text-muted-foreground border-border",
-    icon: <SparklesIcon className="size-4" />,
   },
 };
 

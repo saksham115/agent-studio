@@ -1,8 +1,7 @@
 """Action Executor — dispatch and execute agent actions with audit logging.
 
-Supports action types: API_CALL, DATA_LOOKUP, SEND_MESSAGE, HANDOFF, TOOL_CALL,
-and CUSTOM.  Every execution is persisted to the ``action_executions`` audit
-table regardless of outcome.
+Supports action types: API_CALL and DATA_LOOKUP.  Every execution is
+persisted to the ``action_executions`` audit table regardless of outcome.
 """
 
 from __future__ import annotations
@@ -113,10 +112,6 @@ class ActionExecutor:
         dispatch = {
             ActionType.API_CALL: self._handle_api_call,
             ActionType.DATA_LOOKUP: self._handle_data_lookup,
-            ActionType.SEND_MESSAGE: self._handle_send_message,
-            ActionType.HANDOFF: self._handle_handoff,
-            ActionType.TOOL_CALL: self._handle_tool_call,
-            ActionType.CUSTOM: self._handle_custom,
         }
         handler = dispatch.get(action_type)
         if handler is None:
@@ -219,106 +214,6 @@ class ActionExecutor:
                 data = {"raw_response": response.text}
 
             return {"source": "external", "data": data}
-
-    async def _handle_send_message(
-        self, action: Action, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Placeholder: send a notification message.
-
-        Logs the details and returns success.  A real implementation would
-        dispatch via SMS / email / push-notification provider.
-        """
-        config = action.config or {}
-        channel = config.get("channel", "default")
-        recipient = params.get("recipient", config.get("recipient"))
-        message_body = params.get("message", config.get("message", ""))
-
-        logger.info(
-            "SendMessage action '%s': channel=%s, recipient=%s, body_len=%d",
-            action.name,
-            channel,
-            recipient,
-            len(message_body),
-        )
-
-        return {
-            "sent": True,
-            "channel": channel,
-            "recipient": recipient,
-            "message_length": len(message_body),
-        }
-
-    async def _handle_handoff(
-        self, action: Action, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Mark the conversation for human agent escalation."""
-        config = action.config or {}
-        reason = params.get("reason", config.get("default_reason", "Customer requested"))
-        priority = params.get("priority", config.get("default_priority", "normal"))
-        target_queue = config.get("target_queue", "general")
-
-        logger.info(
-            "Handoff action '%s': reason=%s, priority=%s, queue=%s",
-            action.name,
-            reason,
-            priority,
-            target_queue,
-        )
-
-        return {
-            "handoff_required": True,
-            "reason": reason,
-            "priority": priority,
-            "target_queue": target_queue,
-        }
-
-    async def _handle_tool_call(
-        self, action: Action, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Execute a registered tool.
-
-        For now, tool calls behave similarly to API calls — the config is
-        expected to contain the same keys.  This handler exists as a
-        distinct extension point for future native tool integrations.
-        """
-        config = action.config or {}
-        tool_name = config.get("tool_name", action.name)
-        logger.info("ToolCall action '%s': tool=%s", action.name, tool_name)
-
-        # If an endpoint is configured, delegate to the API call handler
-        if config.get("url"):
-            return await self._handle_api_call(action, params)
-
-        # Otherwise return a structured acknowledgment
-        return {
-            "tool": tool_name,
-            "status": "executed",
-            "params": params,
-        }
-
-    async def _handle_custom(
-        self, action: Action, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Execute custom / user-defined logic.
-
-        Currently serves as a pass-through that logs and echoes the
-        parameters.  Future implementations can evaluate user-supplied
-        scripts or route to plugin handlers.
-        """
-        config = action.config or {}
-        custom_type = config.get("custom_type", "echo")
-
-        logger.info(
-            "Custom action '%s': custom_type=%s",
-            action.name,
-            custom_type,
-        )
-
-        return {
-            "custom_type": custom_type,
-            "config": config,
-            "params": params,
-        }
 
     # -- audit logging ------------------------------------------------------
 
