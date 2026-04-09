@@ -13,7 +13,7 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -204,7 +204,8 @@ class ConversationOrchestrator:
             input_check = await self.guardrail_service.check_input(user_message, input_guardrails)
             if not input_check.passed:
                 # Log triggered guardrail rules
-                for rule_info in (input_check.triggered_rules or []):
+                for rule in (input_check.triggered_rules or []):
+                    rule_info = self._rule_to_dict(rule)
                     guardrails_triggered.append(rule_info)
                     await self._log_guardrail_trigger(
                         conversation_id=conversation_id,
@@ -230,8 +231,8 @@ class ConversationOrchestrator:
             if input_check.modified_text:
                 user_message = input_check.modified_text
             if input_check.triggered_rules:
-                for rule_info in input_check.triggered_rules:
-                    guardrails_triggered.append(rule_info)
+                for rule in input_check.triggered_rules:
+                    guardrails_triggered.append(self._rule_to_dict(rule))
 
         # ---- 4. Store user message ---------------------------------------
         user_msg = Message(
@@ -427,7 +428,8 @@ class ConversationOrchestrator:
                     response_text = output_check.modified_text
 
                 if output_check.triggered_rules:
-                    for rule_info in output_check.triggered_rules:
+                    for rule in output_check.triggered_rules:
+                        rule_info = self._rule_to_dict(rule)
                         guardrails_triggered.append(rule_info)
                         await self._log_guardrail_trigger(
                             conversation_id=conversation_id,
@@ -601,6 +603,18 @@ class ConversationOrchestrator:
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    @staticmethod
+    def _rule_to_dict(rule) -> dict:
+        """Convert a guardrail_service.TriggeredRule dataclass to a JSON-safe
+        dict for storage in OrchestratorResponse.guardrails_triggered and for
+        consumption by ``_log_guardrail_trigger`` (which dict-accesses fields).
+        """
+        data = asdict(rule)
+        # asdict leaves uuid.UUID objects in place; coerce to str for JSON.
+        if "guardrail_id" in data and data["guardrail_id"] is not None:
+            data["guardrail_id"] = str(data["guardrail_id"])
+        return data
 
     async def _load_guardrails(self, agent_id: uuid.UUID) -> list[Guardrail]:
         """Load all guardrails for an agent."""
