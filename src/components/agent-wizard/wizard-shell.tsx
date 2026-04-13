@@ -545,10 +545,41 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
         );
       }
 
-      // Save state diagram
+      // Save state diagram — transform React Flow shape to backend schema.
       if (formData.stateDiagram.nodes.length > 0) {
+        const backendNodes = formData.stateDiagram.nodes.map((n: any) => {
+          const nodeType = n.data?.nodeType;
+          return {
+            id: n.id,
+            name: n.data?.label ?? n.id,
+            description: n.data?.description ?? null,
+            is_initial: nodeType === "start",
+            is_terminal: nodeType === "terminal",
+            position_x: n.position?.x != null ? Math.round(n.position.x) : null,
+            position_y: n.position?.y != null ? Math.round(n.position.y) : null,
+            metadata: {
+              maxTurns: n.data?.maxTurns,
+              nodeType,
+              reactFlowType: n.type,
+            },
+          };
+        });
+        const backendEdges = formData.stateDiagram.edges.map((e: any) => ({
+          id: e.id,
+          from_state_id: e.source,
+          to_state_id: e.target,
+          condition: typeof e.label === "string" ? e.label : null,
+          description: typeof e.label === "string" ? e.label : null,
+          metadata: {
+            reactFlowType: e.type,
+            markerEnd: e.markerEnd,
+            style: e.style,
+            labelStyle: e.labelStyle,
+            labelBgStyle: e.labelBgStyle,
+          },
+        }));
         savePromises.push(
-          stateApi.save(agentId, formData.stateDiagram)
+          stateApi.save(agentId, { nodes: backendNodes, edges: backendEdges })
         );
       }
 
