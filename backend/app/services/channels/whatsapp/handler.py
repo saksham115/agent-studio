@@ -15,6 +15,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.channel import Channel, ChannelType
 from app.models.conversation import Conversation, ConversationStatus
 from app.services.channels.whatsapp.types import NormalizedMessage
 from app.services.media_processor import MediaProcessor
@@ -70,9 +71,12 @@ class WhatsAppMessageHandler:
                     f"Failed to load newly created conversation {conversation_id}"
                 )
 
-            # -- 3. Set external user metadata ---------------------------------
+            # -- 3. Set external user metadata + link WhatsApp channel --------
             conversation.external_user_phone = message.sender_phone
             conversation.external_user_name = message.contact_name
+            channel = await self._find_whatsapp_channel(agent_id)
+            if channel:
+                conversation.channel_id = channel.id
             await self.db.flush()
         else:
             conversation_id = conversation.id
@@ -149,5 +153,15 @@ class WhatsAppMessageHandler:
     ) -> Conversation | None:
         """Load a conversation by ID."""
         stmt = select(Conversation).where(Conversation.id == conversation_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _find_whatsapp_channel(self, agent_id: uuid.UUID) -> Channel | None:
+        """Find the WhatsApp channel configured for an agent."""
+        stmt = select(Channel).where(
+            Channel.agent_id == agent_id,
+            Channel.channel_type == ChannelType.WHATSAPP,
+            Channel.is_active.is_(True),
+        )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
