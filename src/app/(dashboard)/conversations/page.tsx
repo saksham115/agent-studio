@@ -8,7 +8,6 @@ import {
   Globe,
   Search,
   Download,
-  Clock,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -104,9 +103,7 @@ function TableSkeleton() {
             <TableHead>Contact</TableHead>
             <TableHead>Agent</TableHead>
             <TableHead>Channel</TableHead>
-            <TableHead>Current State</TableHead>
             <TableHead className="text-center">Messages</TableHead>
-            <TableHead>Duration</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Started</TableHead>
           </TableRow>
@@ -117,9 +114,7 @@ function TableSkeleton() {
               <TableCell><Skeleton className="h-5 w-32" /></TableCell>
               <TableCell><Skeleton className="h-5 w-24" /></TableCell>
               <TableCell><Skeleton className="h-5 w-20" /></TableCell>
-              <TableCell><Skeleton className="h-5 w-24" /></TableCell>
               <TableCell className="text-center"><Skeleton className="h-5 w-8 mx-auto" /></TableCell>
-              <TableCell><Skeleton className="h-5 w-16" /></TableCell>
               <TableCell><Skeleton className="h-5 w-20" /></TableCell>
               <TableCell><Skeleton className="h-5 w-16" /></TableCell>
             </TableRow>
@@ -302,9 +297,7 @@ export default function ConversationsPage() {
                 <TableHead>Contact</TableHead>
                 <TableHead>Agent</TableHead>
                 <TableHead>Channel</TableHead>
-                <TableHead>Current State</TableHead>
                 <TableHead className="text-center">Messages</TableHead>
-                <TableHead>Duration</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Started</TableHead>
               </TableRow>
@@ -312,7 +305,7 @@ export default function ConversationsPage() {
             <TableBody>
               {filteredConversations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center">
+                  <TableCell colSpan={6} className="h-24 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <MessageSquare className="h-8 w-8 opacity-40" />
                       <p className="text-sm font-medium">No conversations yet</p>
@@ -364,28 +357,12 @@ export default function ConversationsPage() {
                           </Badge>
                         </Link>
                       </TableCell>
-                      <TableCell>
-                        <Link href={`/conversations/${conv.id}`} className="block text-sm text-muted-foreground">
-                          {conv.current_state_name ?? "--"}
-                        </Link>
-                      </TableCell>
                       <TableCell className="text-center">
                         <Link
                           href={`/conversations/${conv.id}`}
                           className="block text-sm tabular-nums"
                         >
                           {conv.message_count ?? 0}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/conversations/${conv.id}`}
-                          className="block text-sm tabular-nums text-muted-foreground"
-                        >
-                          <span className="inline-flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            --
-                          </span>
                         </Link>
                       </TableCell>
                       <TableCell>
