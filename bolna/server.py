@@ -135,7 +135,22 @@ async def websocket_endpoint(agent_id: str, websocket: WebSocket):
         await websocket.close(code=4000)
         return
 
-    assistant_manager = AssistantManager(agent_config, websocket, agent_id)
+    # Bolna's TaskManager rebuilds llm_config as a fresh dict that drops
+    # llm_key and base_url — it looks for them in self.kwargs instead. Pass
+    # them through so OpenAiLLM receives an api_key.
+    llm_cfg = (
+        agent_config.get("tasks", [{}])[0]
+        .get("tools_config", {})
+        .get("llm_agent", {})
+        .get("llm_config", {})
+    )
+    extra_kwargs = {}
+    if llm_cfg.get("llm_key"):
+        extra_kwargs["llm_key"] = llm_cfg["llm_key"]
+    if llm_cfg.get("base_url"):
+        extra_kwargs["base_url"] = llm_cfg["base_url"]
+
+    assistant_manager = AssistantManager(agent_config, websocket, agent_id, **extra_kwargs)
 
     try:
         async for index, task_output in assistant_manager.run(local=True):
