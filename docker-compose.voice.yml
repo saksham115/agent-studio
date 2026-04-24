@@ -24,6 +24,12 @@ services:
       # Default CHECK_FOR_COMPLETION_LLM is "gpt-4.1-mini" which Pellet
       # doesn't serve. Point it at a model Pellet actually has.
       CHECK_FOR_COMPLETION_LLM: meta-llama/Llama-3.3-70B-Instruct-Turbo
+      # Semantic turn detection via smart-turn-v3 (see bolna/smart_turn.py).
+      # SMART_TURN_ENABLED=false disables without rebuilding the image.
+      SMART_TURN_ENABLED: ${SMART_TURN_ENABLED:-true}
+      SMART_TURN_WINDOW_S: ${SMART_TURN_WINDOW_S:-8.0}
+      SMART_TURN_MIN_UTT_MS: ${SMART_TURN_MIN_UTT_MS:-600}
+      SMART_TURN_FAILOPEN: ${SMART_TURN_FAILOPEN:-true}
       LOG_LEVEL: info
     depends_on:
       redis:
