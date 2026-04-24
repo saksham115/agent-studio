@@ -20,9 +20,41 @@ from typing import Dict, List, Optional
 from bolna.helpers.utils import store_file
 from bolna.helpers.logger_config import configure_logger
 from bolna.agent_manager.assistant_manager import AssistantManager
+from bolna.transcriber.sarvam_transcriber import SarvamTranscriber
 
 load_dotenv()
 logger = configure_logger(__name__)
+
+# -----------------------------------------------------------------------------
+# Monkey-patch: teach Bolna's Sarvam transcriber about Exotel.
+#
+# Bolna only auto-configures the input sample rate for plivo and twilio. With
+# telephony_provider="exotel" it falls to the else branch and leaves
+# input_sampling_rate == sampling_rate (16 kHz default), so Bolna tells Sarvam
+# the audio is 16 kHz while actually sending Exotel's 8 kHz PCM. Sarvam then
+# mis-interprets the stream (we saw a 7-second utterance transcribed as ~200 ms
+# of garbage). Setting sampling_rate=8000 in the config makes Sarvam reject the
+# WebSocket (8 kHz unsupported on their streaming endpoint).
+#
+# The right fix is to match Bolna's plivo behaviour: declare input_sampling_rate
+# 8000 and sampling_rate 16000, letting Bolna's internal audioop.ratecv upsample
+# before streaming to Sarvam.
+# -----------------------------------------------------------------------------
+_original_configure_audio_params = SarvamTranscriber._configure_audio_params
+
+
+def _configure_audio_params_with_exotel(self):
+    if self.telephony_provider == "exotel":
+        self.encoding = "linear16"
+        self.input_sampling_rate = 8000
+        self.sampling_rate = 16000
+        self.audio_frame_duration = 0.2
+        return
+    _original_configure_audio_params(self)
+
+
+SarvamTranscriber._configure_audio_params = _configure_audio_params_with_exotel
+logger.info("Patched SarvamTranscriber._configure_audio_params to handle exotel")
 
 redis_pool = redis.ConnectionPool.from_url(
     os.getenv("REDIS_URL", "redis://localhost:6379/1"),
