@@ -99,8 +99,15 @@ class BolnaService:
         llm_config["llm_key"] = f"bolna_{conversation_id}"
         llm_config["model"] = "orchestrator"
 
-        agent_prompts = {}
-        if system_prompt:
-            agent_prompts["task_1"] = {"system_prompt": system_prompt}
+        # Bolna requires task_1.system_prompt to exist; otherwise `self.prompts`
+        # is None and load_prompt errors with "argument of type 'NoneType' is
+        # not iterable". The actual system prompt is built inside our
+        # orchestrator on each call, so a placeholder suffices here.
+        agent_prompts = {
+            "task_1": {
+                "system_prompt": system_prompt
+                or "You are a voice assistant. Orchestrator manages the conversation."
+            }
+        }
 
         return await self.create_agent(agent_config, agent_prompts)
