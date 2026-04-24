@@ -30,6 +30,7 @@ RUN mkdir -p /opt/smart-turn && \
       https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx
 
 COPY smart_turn.py /app/
+COPY tests /app/tests
 COPY server.py /app/
 
 EXPOSE 5001
