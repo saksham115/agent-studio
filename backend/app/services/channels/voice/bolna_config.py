@@ -56,11 +56,11 @@ async def build_bolna_agent_config(
                 },
                 "tools_config": {
                     "input": {
-                        "format": "wav",
+                        "format": "pcm",
                         "provider": "exotel",
                     },
                     "output": {
-                        "format": "wav",
+                        "format": "pcm",
                         "provider": "exotel",
                     },
                     "transcriber": {
@@ -70,6 +70,12 @@ async def build_bolna_agent_config(
                         "stream": True,
                         "encoding": "linear16",
                         "endpointing": 500,
+                        # Input 8 kHz → resample to 16 kHz before Sarvam. The
+                        # resample logic only fires when telephony_provider ∈
+                        # {plivo, twilio}; "exotel" falls to the else branch
+                        # and skips resampling. We monkey-patch
+                        # _configure_audio_params in bolna/server.py to add
+                        # exotel handling there.
                     },
                     "llm_agent": {
                         "agent_type": "simple_llm_agent",
