@@ -1,3 +1,5 @@
+from typing import Any, Literal
+
 from pydantic_settings import BaseSettings
 
 
@@ -6,7 +8,9 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/agent_studio"
     REDIS_URL: str = "redis://localhost:6379/0"
+    LLM_PROVIDER: Literal["pellet", "anthropic"] = "pellet"
     ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
     PELLET_API_KEY: str = ""
     PELLET_BASE_URL: str = "https://getpellet.io/v1"
     GOOGLE_CLIENT_ID: str = ""
@@ -35,6 +39,19 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
     }
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.LLM_PROVIDER == "anthropic" and not self.ANTHROPIC_API_KEY:
+            raise ValueError(
+                "LLM_PROVIDER=anthropic requires ANTHROPIC_API_KEY to be set."
+            )
+        if self.LLM_PROVIDER == "pellet" and not (
+            self.PELLET_API_KEY or self.OPENAI_API_KEY
+        ):
+            raise ValueError(
+                "LLM_PROVIDER=pellet requires PELLET_API_KEY "
+                "(or OPENAI_API_KEY as fallback)."
+            )
 
 
 settings = Settings()
