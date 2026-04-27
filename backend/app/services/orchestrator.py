@@ -259,7 +259,7 @@ class ConversationOrchestrator:
             agent=agent,
             current_state=current_state,
             guardrails=guardrails,
-            kb_context=kb_context,
+            kb_context="\n\n".join(kb_context) if kb_context else "",
         )
 
         formatted_messages = self.prompt_builder.format_messages(messages_list)
