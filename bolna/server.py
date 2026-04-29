@@ -56,6 +56,15 @@ def _configure_audio_params_with_exotel(self):
 SarvamTranscriber._configure_audio_params = _configure_audio_params_with_exotel
 logger.info("Patched SarvamTranscriber._configure_audio_params to handle exotel")
 
+# -----------------------------------------------------------------------------
+# Semantic turn detection: insert smart-turn-v3 as a gate in front of Bolna's
+# naive silence-based endpointing. All monkey-patches live in smart_turn.py;
+# conditional on SMART_TURN_ENABLED env var, disabled = native Bolna behavior.
+# -----------------------------------------------------------------------------
+from smart_turn import install_patches, drop_state_for_ws, warm_up
+
+install_patches()
+
 redis_pool = redis.ConnectionPool.from_url(
     os.getenv("REDIS_URL", "redis://localhost:6379/1"),
     decode_responses=True,
@@ -63,6 +72,15 @@ redis_pool = redis.ConnectionPool.from_url(
 redis_client = redis.Redis.from_pool(redis_pool)
 
 app = FastAPI(title="Bolna Voice Server")
+
+
+@app.on_event("startup")
+async def _warm_smart_turn() -> None:
+    """Warm the smart-turn ONNX session so the first call doesn't stall."""
+    try:
+        await warm_up()
+    except Exception:
+        logger.exception("smart-turn warm-up failed; falling back to lazy load")
 
 app.add_middleware(
     CORSMiddleware,
@@ -160,3 +178,7 @@ async def websocket_endpoint(agent_id: str, websocket: WebSocket):
     except Exception as e:
         logger.error(f"Error in agent {agent_id}: {e}")
         traceback.print_exc()
+    finally:
+        # Drop smart-turn per-call state. Uses the same websocket the input
+        # handler used, so the ws-to-sid mapping resolves correctly.
+        drop_state_for_ws(websocket)
