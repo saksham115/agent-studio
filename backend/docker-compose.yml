@@ -87,7 +87,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/agent_studio
       REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-pellet}
+      PELLET_API_KEY: ${PELLET_API_KEY:-}
+      PELLET_BASE_URL: ${PELLET_BASE_URL:-https://getpellet.io/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
@@ -119,7 +123,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/agent_studio
       REDIS_URL: redis://redis:6379/0
+      LLM_PROVIDER: ${LLM_PROVIDER:-pellet}
+      PELLET_API_KEY: ${PELLET_API_KEY:-}
+      PELLET_BASE_URL: ${PELLET_BASE_URL:-https://getpellet.io/v1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
       S3_ENDPOINT_URL: http://minio:9000
       S3_ACCESS_KEY: minioadmin
