@@ -1,13 +1,14 @@
 """Prompt assembler for the Agent Studio conversation orchestrator.
 
 Constructs the full system prompt, tool definitions, and message history
-that get sent to Claude on each turn. The quality of the assembled prompt
+that get sent to the LLM on each turn. The quality of the assembled prompt
 directly determines agent performance, so care is taken to produce
 clear, well-structured instructions.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -127,18 +128,21 @@ class PromptBuilder:
     # ------------------------------------------------------------------
 
     def build_tools(self, actions: list[Action]) -> list[dict]:
-        """Convert agent Action models to Claude tool-use definitions.
+        """Convert agent Action models to OpenAI-compatible tool definitions.
 
         Each ``Action`` is mapped to a tool dict with the shape expected
-        by the Anthropic messages API::
+        by the OpenAI chat completions API::
 
             {
-                "name": "generate_payment_link",
-                "description": "...",
-                "input_schema": {
-                    "type": "object",
-                    "properties": { ... },
-                    "required": [ ... ]
+                "type": "function",
+                "function": {
+                    "name": "generate_payment_link",
+                    "description": "...",
+                    "parameters": {
+                        "type": "object",
+                        "properties": { ... },
+                        "required": [ ... ]
+                    }
                 }
             }
 
@@ -165,7 +169,7 @@ class PromptBuilder:
         -------
         list[dict]
             Tool definitions ready for the ``tools`` parameter of the
-            Claude messages API.
+            OpenAI-compatible chat completions API.
         """
         tools: list[dict] = []
 
@@ -180,9 +184,12 @@ class PromptBuilder:
 
             tools.append(
                 {
-                    "name": tool_name,
-                    "description": description,
-                    "input_schema": input_schema,
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": description,
+                        "parameters": input_schema,
+                    },
                 }
             )
 
@@ -193,15 +200,15 @@ class PromptBuilder:
     # ------------------------------------------------------------------
 
     def format_messages(self, messages: list[Message]) -> list[dict]:
-        """Convert DB ``Message`` objects to Claude API message dicts.
+        """Convert DB ``Message`` objects to OpenAI-compatible message dicts.
 
         - ``MessageRole.USER`` messages become ``{"role": "user", ...}``
         - ``MessageRole.ASSISTANT`` messages become ``{"role": "assistant", ...}``
           including any ``tool_calls`` stored on the message.
-        - ``MessageRole.SYSTEM`` and ``MessageRole.TOOL`` messages are
-          handled specially: SYSTEM messages are skipped (system prompt is
-          separate), TOOL messages are converted to ``tool_result`` user
-          messages for Claude.
+        - ``MessageRole.SYSTEM`` messages are skipped (system prompt is
+          passed separately).
+        - ``MessageRole.TOOL`` messages become ``{"role": "tool", ...}``
+          with a ``tool_call_id``.
         - The list is truncated to the most recent ``MAX_MESSAGES``
           messages to stay within context limits.
 
@@ -213,7 +220,7 @@ class PromptBuilder:
         Returns
         -------
         list[dict]
-            Message dicts in Anthropic messages-API format.
+            Message dicts in OpenAI-compatible format.
         """
         if not messages:
             return []
@@ -225,8 +232,6 @@ class PromptBuilder:
 
         for msg in recent:
             if msg.role == MessageRole.SYSTEM:
-                # System messages are injected via the system parameter,
-                # not the messages array.
                 continue
 
             if msg.role == MessageRole.USER:
@@ -238,10 +243,8 @@ class PromptBuilder:
             elif msg.role == MessageRole.TOOL:
                 formatted.append(self._format_tool_result_message(msg))
 
-        # Claude requires the messages list to start with a "user" role.
-        # If truncation left an assistant message first, drop leading
-        # non-user messages so the API call doesn't fail.
-        while formatted and formatted[0]["role"] != "user":
+        # Ensure the messages list starts with a user message.
+        while formatted and formatted[0]["role"] not in ("user", "system"):
             formatted.pop(0)
 
         return formatted
@@ -485,66 +488,48 @@ class PromptBuilder:
 
     @staticmethod
     def _format_assistant_message(msg: Message) -> dict:
-        """Format an assistant message, including any tool_use blocks."""
+        """Format an assistant message, including any tool_calls."""
         if not msg.tool_calls:
             return {"role": "assistant", "content": msg.content}
 
-        # When the assistant message contains tool calls, we need to
-        # represent it as a list of content blocks (text + tool_use).
-        content_blocks: list[dict] = []
+        # Build the OpenAI-format tool_calls array from stored data.
+        tool_calls_list: list[dict] = []
 
-        # Include the text portion if non-empty.
-        text = msg.content.strip()
-        if text:
-            content_blocks.append({"type": "text", "text": text})
-
-        # Append each tool call as a tool_use block.
         tool_calls_data = msg.tool_calls
-        if isinstance(tool_calls_data, list):
-            for tc in tool_calls_data:
-                content_blocks.append(
-                    {
-                        "type": "tool_use",
-                        "id": tc.get("id", ""),
-                        "name": tc.get("name", ""),
-                        "input": tc.get("input", {}),
-                    }
-                )
-        elif isinstance(tool_calls_data, dict):
-            # Single tool call stored as a dict rather than a list.
-            content_blocks.append(
-                {
-                    "type": "tool_use",
-                    "id": tool_calls_data.get("id", ""),
-                    "name": tool_calls_data.get("name", ""),
-                    "input": tool_calls_data.get("input", {}),
-                }
-            )
+        items = [tool_calls_data] if isinstance(tool_calls_data, dict) else (tool_calls_data or [])
 
-        return {"role": "assistant", "content": content_blocks}
+        for tc in items:
+            tool_calls_list.append({
+                "id": tc.get("id", ""),
+                "type": "function",
+                "function": {
+                    "name": tc.get("name", ""),
+                    "arguments": json.dumps(tc.get("input", {})),
+                },
+            })
+
+        result: dict = {"role": "assistant", "tool_calls": tool_calls_list}
+        # Include text content if present.
+        text = msg.content.strip() if msg.content else ""
+        if text:
+            result["content"] = text
+
+        return result
 
     @staticmethod
     def _format_tool_result_message(msg: Message) -> dict:
-        """Format a tool-result message for Claude.
+        """Format a tool-result message in OpenAI format.
 
-        Tool results are sent as ``user`` messages with a
-        ``tool_result`` content block so Claude can process the
-        outcome of a tool call.
+        Tool results are sent as ``tool``-role messages with a
+        ``tool_call_id`` referencing the assistant's tool call.
         """
-        # The metadata should contain the tool_use_id this result
-        # corresponds to.
         meta = msg.metadata_json or {}
-        tool_use_id = meta.get("tool_use_id", "")
+        tool_call_id = meta.get("tool_use_id", "")
 
         return {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": msg.content,
-                }
-            ],
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": msg.content,
         }
 
     @staticmethod
