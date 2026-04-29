@@ -1,0 +1,42 @@
+# Voice call services — run alongside the main backend.
+# Usage: docker compose -f docker-compose.voice.yml up -d
+
+services:
+  bolna:
+    build:
+      context: ./bolna
+      dockerfile: Dockerfile
+    container_name: agent_studio_bolna
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      REDIS_URL: redis://redis:6379/1
+      SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      # Bolna's StreamingContextualAgent eagerly inits a second OpenAiLLM
+      # used as the "semantic turn-detection" LLM. We route it to Pellet so
+      # Bolna gets real turn detection (instead of falling back to crude
+      # silence/word-count heuristics). The OpenAI Python SDK picks up
+      # OPENAI_BASE_URL automatically when no base_url is passed, which
+      # is exactly how Bolna constructs this secondary LLM.
+      OPENAI_API_KEY: ${PELLET_API_KEY:-sk-dummy}
+      OPENAI_BASE_URL: ${PELLET_BASE_URL:-https://getpellet.io/v1}
+      # Default CHECK_FOR_COMPLETION_LLM is "gpt-4.1-mini" which Pellet
+      # doesn't serve. Point it at a model Pellet actually has.
+      CHECK_FOR_COMPLETION_LLM: meta-llama/Llama-3.3-70B-Instruct-Turbo
+      LOG_LEVEL: info
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent_studio_voice_redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

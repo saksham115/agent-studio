@@ -166,34 +166,105 @@ class SarvamTTS:
             "Content-Type": "application/json",
         }
 
-        payload = {
-            "inputs": [text],
-            "target_language_code": language,
-            "speaker": speaker,
-            "model": self.MODEL,
-        }
+        # Sarvam limits input to 500 chars — split long text into chunks
+        # and concatenate the resulting audio.
+        MAX_CHARS = 480
+        text_chunks = self._split_text(text, MAX_CHARS)
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            logger.info(
-                "Sarvam TTS request: language=%s, speaker=%s, text_length=%d",
-                language,
-                speaker,
-                len(text),
-            )
-            response = await client.post(
-                self.TTS_URL,
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
+            all_audio: list[bytes] = []
 
-        result = response.json()
-        audios = result.get("audios", [])
+            for i, chunk_text in enumerate(text_chunks):
+                logger.info(
+                    "Sarvam TTS request: language=%s, speaker=%s, chunk=%d/%d, text_length=%d",
+                    language, speaker, i + 1, len(text_chunks), len(chunk_text),
+                )
+                payload = {
+                    "inputs": [chunk_text],
+                    "target_language_code": language,
+                    "speaker": speaker,
+                    "model": self.MODEL,
+                }
+                response = await client.post(
+                    self.TTS_URL,
+                    headers=headers,
+                    json=payload,
+                )
+                if response.status_code != 200:
+                    logger.error("Sarvam TTS error %d: %s", response.status_code, response.text)
+                response.raise_for_status()
 
-        if not audios:
-            raise ValueError("Sarvam TTS returned no audio data")
+                result = response.json()
+                audios = result.get("audios", [])
+                if not audios:
+                    raise ValueError("Sarvam TTS returned no audio data")
 
-        # Decode the first audio segment from base64
-        audio_bytes = base64.b64decode(audios[0])
-        logger.info("Sarvam TTS result: audio_size=%d bytes", len(audio_bytes))
-        return audio_bytes
+                all_audio.append(base64.b64decode(audios[0]))
+
+        # Concatenate WAV files — use the header from the first chunk
+        # and append raw PCM from subsequent chunks.
+        if len(all_audio) == 1:
+            combined = all_audio[0]
+        else:
+            combined = self._concat_wav(all_audio)
+
+        logger.info("Sarvam TTS result: audio_size=%d bytes (%d chunks)", len(combined), len(text_chunks))
+        return combined
+
+    @staticmethod
+    def _split_text(text: str, max_chars: int) -> list[str]:
+        """Split text at sentence boundaries to stay within max_chars."""
+        if len(text) <= max_chars:
+            return [text]
+
+        chunks: list[str] = []
+        remaining = text
+
+        while remaining:
+            if len(remaining) <= max_chars:
+                chunks.append(remaining)
+                break
+
+            # Try to split at sentence boundary (। or . or ? or !)
+            split_at = -1
+            for sep in ("। ", ". ", "? ", "! ", ", "):
+                idx = remaining.rfind(sep, 0, max_chars)
+                if idx > 0 and idx > split_at:
+                    split_at = idx + len(sep)
+
+            if split_at <= 0:
+                # No sentence boundary — split at last space
+                split_at = remaining.rfind(" ", 0, max_chars)
+            if split_at <= 0:
+                # No space — hard split
+                split_at = max_chars
+
+            chunks.append(remaining[:split_at].strip())
+            remaining = remaining[split_at:].strip()
+
+        return [c for c in chunks if c]
+
+    @staticmethod
+    def _concat_wav(wav_parts: list[bytes]) -> bytes:
+        """Concatenate multiple WAV files into one by appending PCM data."""
+        import struct as st
+
+        if not wav_parts:
+            return b""
+
+        # Use the first WAV's header as the base
+        header = wav_parts[0][:44]
+        pcm_parts = []
+        for wav in wav_parts:
+            if wav[:4] == b"RIFF" and len(wav) > 44:
+                pcm_parts.append(wav[44:])
+            else:
+                pcm_parts.append(wav)
+
+        combined_pcm = b"".join(pcm_parts)
+
+        # Rebuild WAV header with correct sizes
+        buf = bytearray(header)
+        st.pack_into("<I", buf, 4, 36 + len(combined_pcm))  # RIFF chunk size
+        st.pack_into("<I", buf, 40, len(combined_pcm))  # data chunk size
+        return bytes(buf) + combined_pcm
