@@ -12,3 +12,7 @@ import os
 
 os.environ.setdefault("LLM_PROVIDER", "pellet")
 os.environ.setdefault("PELLET_API_KEY", "test-dummy")
+# Plivo SDK validates auth_id format (must start with "MA" + 18 alphanumerics).
+# Use realistic-shaped dummies so PlivoClient instantiates in tests.
+os.environ.setdefault("PLIVO_AUTH_ID", "MA" + "X" * 18)
+os.environ.setdefault("PLIVO_AUTH_TOKEN", "Y" * 40)
