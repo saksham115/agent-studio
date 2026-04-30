@@ -22,24 +22,47 @@ class Settings(BaseSettings):
     S3_BUCKET: str = "agent-studio-uploads"
     AWS_REGION: str = "ap-south-1"
     SARVAM_API_KEY: str = ""
-    EXOTEL_API_KEY: str = ""
-    EXOTEL_API_TOKEN: str = ""
-    EXOTEL_SID: str = ""
-    EXOTEL_SUBDOMAIN: str = ""
+    PLIVO_AUTH_ID: str = ""
+    PLIVO_AUTH_TOKEN: str = ""
+    PLIVO_APPLICATION_ID: str = ""
+    # Log-only first; flip to True after demo confirms signatures work behind ngrok.
+    PLIVO_VERIFY_SIGNATURES: bool = False
     GUPSHUP_API_KEY: str = ""
     GUPSHUP_APP_NAME: str = ""
     GUPSHUP_SOURCE_PHONE: str = ""
     OPENAI_API_KEY: str = ""
     VOYAGE_API_KEY: str = ""
     PUBLIC_API_URL: str = "http://localhost:8000"
+    # Plivo dials this URL for the bidirectional audio WebSocket. If unset,
+    # auto-derived from PUBLIC_API_URL via the public_ws_url property.
+    PUBLIC_WS_URL: str = ""
     BOLNA_API_URL: str = "http://localhost:5001"
     BOLNA_WS_URL: str = "ws://localhost:5001"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+
+    @property
+    def public_ws_url(self) -> str:
+        """Public WebSocket URL Plivo uses to reach our backend.
+
+        Defaults to PUBLIC_API_URL with the scheme rewritten (https→wss, http→ws).
+        Override via PUBLIC_WS_URL env var if backend is fronted by a different
+        host for WebSocket traffic.
+        """
+        if self.PUBLIC_WS_URL:
+            return self.PUBLIC_WS_URL
+        return (
+            self.PUBLIC_API_URL
+            .replace("https://", "wss://", 1)
+            .replace("http://", "ws://", 1)
+        )
 
     model_config = {
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
+        # Tolerate stale env vars (e.g. EXOTEL_* left over from the Plivo
+        # migration). Operators get a clean cutover; they can prune later.
+        "extra": "ignore",
     }
 
     def model_post_init(self, __context: Any) -> None:

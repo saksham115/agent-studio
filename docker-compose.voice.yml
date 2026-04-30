@@ -13,6 +13,12 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/1
       SARVAM_API_KEY: ${SARVAM_API_KEY:-}
+      # Bolna's PlivoInputHandler reads these directly via os.getenv to
+      # init its plivo.RestClient (used for delete_all_streams on hangup).
+      # Without them, the WS handler crashes with AuthenticationError before
+      # the assistant_manager can run.
+      PLIVO_AUTH_ID: ${PLIVO_AUTH_ID:-}
+      PLIVO_AUTH_TOKEN: ${PLIVO_AUTH_TOKEN:-}
       # Bolna's StreamingContextualAgent eagerly inits a second OpenAiLLM
       # used as the "semantic turn-detection" LLM. We route it to Pellet so
       # Bolna gets real turn detection (instead of falling back to crude

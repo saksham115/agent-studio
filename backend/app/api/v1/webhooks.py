@@ -1,21 +1,19 @@
 """Webhook endpoints for external service callbacks.
 
-These endpoints are called by third-party services (Gupshup, Meta, Exotel)
+These endpoints are called by third-party services (Gupshup, Meta, Plivo)
 and must be publicly accessible (no auth). They handle:
 
 WhatsApp (Gupshup / Meta Cloud API):
 - GET  /webhooks/whatsapp/{agent_id} — Webhook verification (hub.challenge)
 - POST /webhooks/whatsapp/{agent_id} — Incoming message processing
 
-Voice (Exotel + Sarvam AI):
-- POST /webhooks/voice/incoming — Handle incoming voice call
-- POST /webhooks/voice/status   — Handle call status callbacks
-- POST /webhooks/voice/audio    — Handle audio input during a call
+Voice (Plivo + Sarvam AI):
+- POST /webhooks/voice/incoming — Plivo answer_url; returns Plivo XML opening WS stream
+- POST /webhooks/voice/status   — Plivo hangup_url; marks Conversation COMPLETED
 """
 
 from __future__ import annotations
 
-import base64
 import logging
 import uuid
 
@@ -26,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db
+from app.config import settings
 from app.models.channel import Channel, ChannelType, ChannelStatus
 from app.models.channel import WhatsAppProvider as WhatsAppProviderModel
 from app.models.conversation import Conversation
@@ -33,7 +32,11 @@ from app.services.channels.whatsapp.gupshup import GupshupAdapter
 from app.services.channels.whatsapp.meta_cloud import MetaCloudAdapter
 from app.services.channels.whatsapp.provider import WhatsAppProviderBase
 from app.services.channels.whatsapp.handler import WhatsAppMessageHandler
-from app.services.channels.voice.exotel import CallEvent, ExotelClient
+from app.services.channels.voice.plivo import CallEvent, PlivoClient
+from app.services.channels.voice.plivo_xml import (
+    greeting_then_stream,
+    say_response,
+)
 from app.services.channels.voice.handler import VoiceCallHandler
 
 logger = logging.getLogger(__name__)
@@ -341,196 +344,163 @@ def _build_meta_adapter(
 
 
 # ==========================================================================
-# Voice (Exotel + Sarvam AI) webhook endpoints
+# Voice (Plivo + Sarvam AI) webhook endpoints
 # ==========================================================================
 
 
-@router.api_route("/voice/incoming", methods=["GET", "POST"])
-@router.api_route("/voice/{agent_id}/incoming", methods=["GET", "POST"])
+def _verify_plivo_signature(
+    request: Request,
+    payload: dict,
+    *,
+    path: str,
+) -> None:
+    """Run Plivo V3 signature verification with log-only-mode toggle.
+
+    PLIVO_VERIFY_SIGNATURES=false (default) logs failures but allows the request
+    through — used during initial demo to confirm signatures actually work
+    behind ngrok before flipping to fail-closed.
+
+    Constructs the URL from PUBLIC_API_URL rather than ``request.url`` because
+    ngrok / reverse-proxy rewriting changes what the FastAPI Request sees, and
+    Plivo signed the public-facing URL.
+    """
+    plivo_client = PlivoClient()
+    full_url = f"{settings.PUBLIC_API_URL.rstrip('/')}{path}"
+    sig_ok = plivo_client.verify_signature(
+        method="POST",
+        url=full_url,
+        params=payload,
+        headers=request.headers,
+    )
+    if sig_ok:
+        logger.info("Plivo signature OK on %s", path)
+        return
+    if settings.PLIVO_VERIFY_SIGNATURES:
+        logger.warning("Invalid Plivo signature on %s (rejecting)", path)
+        raise HTTPException(status_code=403, detail="Invalid Plivo signature")
+    logger.warning("Plivo signature failed on %s (log-only mode; allowing)", path)
+
+
+@router.post("/voice/incoming")
 async def handle_voice_incoming(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    agent_id: uuid.UUID | None = None,
 ) -> Response:
-    """Handle an incoming voice call from Exotel."""
-    if request.method == "GET":
-        payload = dict(request.query_params)
-    else:
-        form_data = await request.form()
-        payload = dict(form_data)
+    """Plivo answer_url. Returns Plivo XML to greet caller and open WS stream.
 
-    logger.info("Voice incoming webhook received: agent_id=%s payload=%s", agent_id, payload)
-
-    exotel_client = ExotelClient()
-    call_event = exotel_client.parse_webhook(payload)
-
-    # Resolve agent: use URL param, or fall back to phone number lookup
-    if agent_id is None:
-        agent_id = await _resolve_agent_by_phone(db, call_event.to_number)
-    if agent_id is None:
-        logger.warning(
-            "No agent found for phone number %s (call_sid=%s)",
-            call_event.to_number,
-            call_event.call_sid,
-        )
-        return _exoml_say("Sorry, this number is not configured. Goodbye.")
-
-    # Determine language from channel config or default to hi-IN
-    language, speaker = await _get_voice_config(db, agent_id)
-
-    # Start the voice conversation
-    handler = VoiceCallHandler(db)
-    try:
-        conversation_id, welcome_audio = await handler.handle_call_start(
-            agent_id=agent_id,
-            call_event=call_event,
-            language=language,
-            speaker=speaker,
-        )
-    except ValueError as exc:
-        logger.error("Failed to start voice conversation: %s", exc)
-        return _exoml_say("Sorry, the agent is not available right now. Goodbye.")
-
-    # Track this call — store agent_id too for audio callback
-    _active_calls[call_event.call_sid] = conversation_id
-
-    # Return ExoML that plays the welcome audio
-    if welcome_audio:
-        audio_b64 = base64.b64encode(welcome_audio).decode("ascii")
-        return _exoml_play_and_gather(
-            audio_base64=audio_b64,
-            action_url=f"/api/v1/webhooks/voice/{agent_id}/audio",
-            call_sid=call_event.call_sid,
-        )
-    else:
-        return _exoml_say("Hello! How can I help you today?")
-
-
-@router.post("/voice/status")
-@router.post("/voice/{agent_id}/status")
-async def handle_voice_status(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    agent_id: uuid.UUID | None = None,
-) -> dict:
-    """Handle Exotel call status callbacks.
-
-    Called when the call status changes (ringing, in-progress, completed,
-    failed, etc.).  When the call ends we update the conversation status.
+    Flow:
+    1. Verify Plivo signature (log-only mode for first deploy).
+    2. Parse webhook → CallEvent.
+    3. Resolve agent by called DID (To field).
+    4. Create Conversation + ephemeral Bolna agent.
+    5. Return ``<Response><Speak>greeting</Speak><Stream>wss://...</Stream></Response>``.
     """
     form_data = await request.form()
     payload = dict(form_data)
 
-    logger.info("Voice status webhook received: %s", payload)
+    logger.info("Plivo /voice/incoming payload: %s", payload)
+    _verify_plivo_signature(request, payload, path="/api/v1/webhooks/voice/incoming")
 
-    exotel_client = ExotelClient()
-    call_event = exotel_client.parse_webhook(payload)
+    plivo_client = PlivoClient()
+    call_event = plivo_client.parse_webhook(payload)
 
-    # If the call has ended, finalize the conversation
+    agent_id = await _resolve_agent_by_phone(db, call_event.to_number)
+    if agent_id is None:
+        logger.warning(
+            "No agent for incoming call to %s (call_uuid=%s)",
+            call_event.to_number, call_event.call_sid,
+        )
+        return Response(
+            content=say_response("Sorry, this number is not in service."),
+            media_type="application/xml",
+        )
+
+    channel = await _find_voice_channel(db, agent_id)
+    channel_config = (channel.config or {}) if channel else {}
+    language = channel_config.get("language", "en-IN")
+
+    # Use the agent's actual welcome message in <Speak> rather than Bolna's
+    # configured agent_welcome_message. Reason: Bolna's task_manager fires
+    # __forced_first_message before its TTS WebSocket has connected, so the
+    # welcome audio is silently dropped ("No welcome message audio to send,
+    # marking welcome message as played"). Putting the greeting in our XML
+    # makes it Plivo's TTS — reliable, plays before the WS even opens.
+    from app.models.agent import Agent
+    agent = (await db.execute(
+        select(Agent).where(Agent.id == agent_id)
+    )).scalar_one_or_none()
+    greeting = (
+        channel_config.get("greeting")
+        or (agent.welcome_message if agent and agent.welcome_message else None)
+        or "Hello! How can I help you today?"
+    )
+
+    # Create conversation + ephemeral Bolna agent.
+    handler = VoiceCallHandler(db)
+    try:
+        conversation_id, _bolna_agent_id = await handler.handle_inbound_call(
+            agent_id=agent_id,
+            call_event=call_event,
+        )
+    except Exception:
+        logger.exception("Failed to set up inbound voice call")
+        return Response(
+            content=say_response("Sorry, the agent is not available right now."),
+            media_type="application/xml",
+        )
+
+    _active_calls[call_event.call_sid] = conversation_id
+
+    # WebSocket URL Plivo will dial. conversation_id is appended as query param.
+    ws_url = f"{settings.public_ws_url.rstrip('/')}/api/v1/voice/ws"
+    return Response(
+        content=greeting_then_stream(
+            greeting_text=greeting,
+            ws_url=ws_url,
+            conversation_id=str(conversation_id),
+            language=language,
+        ),
+        media_type="application/xml",
+    )
+
+
+@router.post("/voice/status")
+async def handle_voice_status(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Plivo hangup_url + status callbacks.
+
+    On terminal status (completed, failed, busy, no-answer, canceled), finalize
+    the linked Conversation. Plivo also opens a transient 2nd WebSocket at
+    hangup (Bolna issue #148) — voicebot_ws.py defends against duplicate
+    connections; this handler just records the call-end.
+    """
+    form_data = await request.form()
+    payload = dict(form_data)
+
+    logger.info("Plivo /voice/status payload: %s", payload)
+    _verify_plivo_signature(request, payload, path="/api/v1/webhooks/voice/status")
+
+    plivo_client = PlivoClient()
+    call_event = plivo_client.parse_webhook(payload)
+
     terminal_statuses = {"completed", "failed", "busy", "no-answer", "canceled"}
     if call_event.status in terminal_statuses:
         conversation_id = _active_calls.pop(call_event.call_sid, None)
+        if conversation_id is None:
+            conversation_id = await _find_conversation_by_call_sid(
+                db, call_event.call_sid,
+            )
         if conversation_id:
             handler = VoiceCallHandler(db)
             await handler.handle_call_end(conversation_id, call_event)
             logger.info(
-                "Voice call finalized: call_sid=%s, conversation_id=%s, status=%s",
-                call_event.call_sid,
-                conversation_id,
-                call_event.status,
+                "Voice call finalized: call_uuid=%s, conversation_id=%s, status=%s",
+                call_event.call_sid, conversation_id, call_event.status,
             )
 
     return {"status": "ok"}
-
-
-@router.post("/voice/audio")
-@router.post("/voice/{agent_id}/audio")
-async def handle_voice_audio(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    agent_id: uuid.UUID | None = None,
-) -> Response:
-    """Handle audio input during a voice call.
-
-    This endpoint receives the caller's recorded audio (from an ExoML
-    ``<Record>`` or ``<Gather>`` verb, or posted directly by the
-    telephony integration), processes it through the STT -> LLM -> TTS
-    pipeline, and returns the response audio.
-
-    Expected request body:
-    - ``multipart/form-data`` with ``audio`` file and ``CallSid`` field, OR
-    - ``application/json`` with ``audio_base64`` and ``call_sid`` fields.
-    """
-    content_type = request.headers.get("content-type", "")
-
-    audio_data: bytes | None = None
-    call_sid: str = ""
-
-    if "multipart/form-data" in content_type:
-        form_data = await request.form()
-        call_sid = str(form_data.get("CallSid", form_data.get("call_sid", "")))
-
-        # Try to get audio from uploaded file
-        audio_file = form_data.get("audio") or form_data.get("RecordingFile")
-        if audio_file and hasattr(audio_file, "read"):
-            audio_data = await audio_file.read()
-
-        # Fallback: check for recording URL in Exotel callback
-        recording_url = form_data.get("RecordingUrl", form_data.get("recording_url"))
-        if not audio_data and recording_url:
-            audio_data = await _download_recording(str(recording_url))
-    else:
-        # JSON body
-        try:
-            body = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid request body")
-
-        call_sid = body.get("call_sid", "")
-        audio_b64 = body.get("audio_base64", "")
-        if audio_b64:
-            audio_data = base64.b64decode(audio_b64)
-
-    if not call_sid:
-        raise HTTPException(status_code=400, detail="Missing call_sid")
-
-    if not audio_data:
-        raise HTTPException(status_code=400, detail="No audio data received")
-
-    # Look up conversation for this call
-    conversation_id = _active_calls.get(call_sid)
-    if not conversation_id:
-        # Try to find by call_sid in conversation context
-        conversation_id = await _find_conversation_by_call_sid(db, call_sid)
-        if conversation_id:
-            _active_calls[call_sid] = conversation_id
-
-    if not conversation_id:
-        logger.warning("No active conversation for call_sid=%s", call_sid)
-        return _exoml_say("Sorry, I could not find your conversation. Goodbye.")
-
-    # Retrieve language/speaker settings from the conversation
-    language, speaker = await _get_voice_config_for_conversation(db, conversation_id)
-
-    # Process through the voice pipeline
-    handler = VoiceCallHandler(db)
-    response_audio = await handler.handle_audio_input(
-        conversation_id=conversation_id,
-        audio_data=audio_data,
-        language=language,
-        speaker=speaker,
-    )
-
-    if response_audio:
-        audio_b64 = base64.b64encode(response_audio).decode("ascii")
-        action_url = f"/api/v1/webhooks/voice/{agent_id}/audio" if agent_id else "/api/v1/webhooks/voice/audio"
-        return _exoml_play_and_gather(
-            audio_base64=audio_b64,
-            action_url=action_url,
-            call_sid=call_sid,
-        )
-    else:
-        return _exoml_say("Sorry, I couldn't generate a response. Please try again.")
 
 
 # --------------------------------------------------------------------------
@@ -538,159 +508,73 @@ async def handle_voice_audio(
 # --------------------------------------------------------------------------
 
 
-async def _resolve_agent_by_phone(db: AsyncSession, phone_number: str) -> uuid.UUID | None:
-    """Find the agent associated with a phone number via its voice channel."""
+async def _resolve_agent_by_phone(
+    db: AsyncSession, phone_number: str,
+) -> uuid.UUID | None:
+    """Find the agent associated with a phone number via its voice channel.
+
+    Resolution order:
+    1. Exact match on Channel.phone_number.
+    2. Digit-only comparison (handles "+918012345678" vs "918012345678" vs
+       "08012345678" formatting differences).
+    3. **MVP single-tenant fallback** — if there's exactly one active voice
+       channel on the system, return it regardless of phone_number. This lets
+       SIP Endpoint demos work without guessing what Plivo's ``To`` field
+       contains (it's a SIP URI, not a phone number, and varies). For a
+       multi-channel production deployment this fallback is intentionally
+       conservative: only fires when the route is unambiguous.
+    """
     stmt = select(Channel).where(
         Channel.channel_type == ChannelType.VOICE,
         Channel.is_active.is_(True),
         Channel.phone_number == phone_number,
     )
-    result = await db.execute(stmt)
-    channel = result.scalar_one_or_none()
-
+    channel = (await db.execute(stmt)).scalar_one_or_none()
     if channel:
         return channel.agent_id
 
-    # Retry without country-code prefix (Exotel sometimes strips it)
     stripped = phone_number.lstrip("+").lstrip("0")
     stmt2 = select(Channel).where(
         Channel.channel_type == ChannelType.VOICE,
         Channel.is_active.is_(True),
     )
-    result2 = await db.execute(stmt2)
-    channels = result2.scalars().all()
+    channels = (await db.execute(stmt2)).scalars().all()
     for ch in channels:
         if ch.phone_number and ch.phone_number.lstrip("+").lstrip("0") == stripped:
             return ch.agent_id
 
+    # MVP fallback — unambiguous single channel.
+    if len(channels) == 1:
+        logger.info(
+            "Voice route fallback: no phone match for %r, but only one active "
+            "voice channel exists — routing to agent_id=%s",
+            phone_number, channels[0].agent_id,
+        )
+        return channels[0].agent_id
     return None
 
 
-async def _get_voice_config(db: AsyncSession, agent_id: uuid.UUID) -> tuple[str, str]:
-    """Read language and speaker from the voice channel config, with defaults."""
+async def _find_voice_channel(
+    db: AsyncSession, agent_id: uuid.UUID,
+) -> Channel | None:
+    """Return the agent's active voice Channel row (or None)."""
     stmt = select(Channel).where(
         Channel.agent_id == agent_id,
         Channel.channel_type == ChannelType.VOICE,
     )
-    result = await db.execute(stmt)
-    channel = result.scalar_one_or_none()
-
-    if channel and channel.config:
-        language = channel.config.get("language") or channel.config.get("workingHoursStart") or "hi-IN"
-        speaker = channel.config.get("speaker") or channel.config.get("ttsVoice") or "anushka"
-        return language, speaker
-
-    return "hi-IN", "anushka"
-
-
-async def _get_voice_config_for_conversation(
-    db: AsyncSession,
-    conversation_id: uuid.UUID,
-) -> tuple[str, str]:
-    """Resolve voice config from the conversation's agent channel."""
-    stmt = select(Conversation).where(Conversation.id == conversation_id)
-    result = await db.execute(stmt)
-    conversation = result.scalar_one_or_none()
-
-    if conversation:
-        lang = conversation.language or "hi-IN"
-        _, speaker = await _get_voice_config(db, conversation.agent_id)
-        return lang, speaker
-
-    return "hi-IN", "anushka"
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 async def _find_conversation_by_call_sid(
-    db: AsyncSession,
-    call_sid: str,
+    db: AsyncSession, call_sid: str,
 ) -> uuid.UUID | None:
-    """Look up a conversation by the Exotel call_sid stored in context."""
+    """Look up a conversation by Plivo's CallUUID stored in context.call_sid.
+
+    The DB column key stays "call_sid" for compatibility with existing data;
+    the value is whatever the telephony provider's unique-per-call ID is.
+    """
     stmt = select(Conversation).where(
         Conversation.context["call_sid"].astext == call_sid,
     )
-    result = await db.execute(stmt)
-    conversation = result.scalar_one_or_none()
+    conversation = (await db.execute(stmt)).scalar_one_or_none()
     return conversation.id if conversation else None
-
-
-async def _download_recording(url: str) -> bytes | None:
-    """Download audio from an Exotel recording URL."""
-    import httpx
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            return response.content
-    except Exception:
-        logger.error("Failed to download recording from %s", url, exc_info=True)
-        return None
-
-
-def _exoml_say(message: str) -> Response:
-    """Return a minimal ExoML response that speaks a message and hangs up."""
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        "<Response>\n"
-        f"  <Say>{message}</Say>\n"
-        "  <Hangup/>\n"
-        "</Response>"
-    )
-    return Response(content=xml, media_type="application/xml")
-
-
-def _exoml_play_and_gather(
-    audio_base64: str,
-    action_url: str,
-    call_sid: str,
-) -> Response:
-    """Return ExoML that plays audio and gathers the next recording.
-
-    Uploads the audio to MinIO and returns a presigned URL for Exotel
-    to fetch, then records the caller's next utterance.
-    """
-    from app.services.storage import StorageService
-
-    # Upload audio to MinIO and get a presigned URL
-    audio_bytes = base64.b64decode(audio_base64)
-    storage = StorageService()
-    s3_key = f"voice/tts/{call_sid}/{uuid.uuid4().hex[:8]}.wav"
-    storage.upload_file(audio_bytes, s3_key, "audio/wav")
-    audio_url = storage.generate_presigned_url(s3_key, expires_in=300)
-
-    # For local MinIO, the presigned URL points to localhost which Exotel can't reach.
-    # Use the public URL to serve the audio instead.
-    from app.config import settings
-    public_base = settings.PUBLIC_API_URL.rstrip("/")
-    serve_url = f"{public_base}/api/v1/webhooks/voice/audio-file/{call_sid}/{s3_key.split('/')[-1]}"
-
-    # Store the s3_key in memory for serving
-    _audio_files[f"{call_sid}/{s3_key.split('/')[-1]}"] = s3_key
-
-    xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        "<Response>\n"
-        f'  <Play>{serve_url}</Play>\n'
-        f'  <Record action="{action_url}?call_sid={call_sid}" '
-        f'maxLength="30" timeout="5" finishOnKey="#"/>\n'
-        "</Response>"
-    )
-    return Response(content=xml, media_type="application/xml")
-
-
-# In-memory map for serving audio files
-_audio_files: dict[str, str] = {}
-
-
-@router.get("/voice/audio-file/{call_sid}/{filename}")
-async def serve_voice_audio(call_sid: str, filename: str) -> Response:
-    """Serve TTS audio files to Exotel."""
-    key = f"{call_sid}/{filename}"
-    s3_key = _audio_files.get(key)
-    if not s3_key:
-        raise HTTPException(status_code=404, detail="Audio not found")
-
-    from app.services.storage import StorageService
-    storage = StorageService()
-    audio_bytes = storage.download_file(s3_key)
-    return Response(content=audio_bytes, media_type="audio/wav")
