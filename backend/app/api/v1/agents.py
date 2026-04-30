@@ -230,44 +230,19 @@ async def start_call(
     if agent.status != AgentStatus.PUBLISHED:
         raise HTTPException(status_code=400, detail="Agent must be published to make calls")
 
-    # Find the voice channel to get config
-    stmt = select(Channel).where(
-        Channel.agent_id == agent_id,
-        Channel.channel_type == "voice",
-    )
-    result = await db.execute(stmt)
-    channel = result.scalar_one_or_none()
-
-    if not channel:
-        raise HTTPException(status_code=400, detail="Voice channel not configured for this agent")
-
-    from app.services.channels.voice.exotel import ExotelClient
-
-    exotel = ExotelClient()
-    base_url = settings.PUBLIC_API_URL.rstrip("/")
-
-    # Use the ExoPhone from channel config, or auto-fetch from Exotel
-    config = channel.config or {}
-    caller_id = config.get("phoneNumber") or channel.phone_number or ""
-    if not caller_id:
-        exophones = await exotel.list_exophones()
-        if not exophones:
-            raise HTTPException(status_code=400, detail="No ExoPhone numbers found in your Exotel account")
-        caller_id = exophones[0]
-
-    # Configure the ExoPhone to hit our webhook when the call connects
-    incoming_url = f"{base_url}/api/v1/webhooks/voice/{agent_id}/incoming"
-    await exotel.update_exophone_webhook(caller_id, incoming_url)
-
-    call_result = await exotel.make_call(
-        from_number=body.phone_number,
-        to_number=caller_id,
-        caller_id=caller_id,
-        callback_url=f"{base_url}/api/v1/webhooks/voice/{agent_id}/status",
-    )
-
+    # Outbound calling is not supported in the MVP.
+    #
+    # The Plivo migration is inbound-only by design — outbound dialing to
+    # Indian phones requires DLT registration (TRAI UCC 2018 — Principal
+    # Entity, content/consent templates) which is a separate calendar
+    # dependency. Wire this up in a follow-up once DLT lands; until then,
+    # return a clear error rather than letting callers think the endpoint
+    # silently works.
     return StartCallResponse(
-        success=call_result.success,
-        call_sid=call_result.call_sid,
-        error=call_result.error,
+        success=False,
+        error=(
+            "Outbound calling is disabled in this build. "
+            "MVP supports inbound calls only — dial the configured Plivo DID "
+            "to reach the agent."
+        ),
     )

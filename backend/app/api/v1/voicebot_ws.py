@@ -1,207 +1,163 @@
-"""Voice call initiation endpoint for the Bolna sidecar architecture.
+"""Voice call WebSocket proxy — Plivo → backend → Bolna sidecar.
 
-When a voice channel is activated or an inbound call arrives, this module
-creates an ephemeral Bolna agent and returns the WebSocket URL that Exotel
-should connect to. Bolna handles the full audio pipeline (STT/TTS/VAD),
-and calls back to our voice_completions endpoint for LLM responses.
+Plivo's ``<Stream>`` directive opens a bidirectional WebSocket to this endpoint.
+The webhook handler in :mod:`webhooks.py` has already created the Conversation
+and the ephemeral Bolna agent before Plivo dials in; this module just proxies
+audio frames between Plivo and the Bolna sidecar.
 
-The WebSocket route is kept for backward compatibility — Exotel's ExoML
-app still points here, and we redirect to Bolna.
+The ``conversation_id`` arrives as a URL query parameter (``?conversation_id=…``)
+set by ``plivo_xml.greeting_then_stream``. We use it to look up the Conversation
+row and extract ``bolna_agent_id`` from ``Conversation.context``.
+
+Defensive 2nd-WS-at-hangup handling: Plivo opens a second WebSocket briefly when
+the call ends (Bolna issue #148). If a 2nd connection arrives for a conversation
+we're already proxying, we close it immediately rather than letting it spin up
+a phantom second proxy.
 """
 
 from __future__ import annotations
 
-import json
+import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session_factory
-from app.services.channels.voice.bolna_config import build_bolna_agent_config
+from app.models.conversation import Conversation
 from app.services.channels.voice.bolna_service import BolnaService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# In-process set of conversation_ids with an active proxy connection.
+# A 2nd WS arriving for the same conversation_id is closed immediately.
+# Single-worker dev OK; for multi-worker, a Redis-backed set is the upgrade path.
+_active_proxies: set[uuid.UUID] = set()
 
-@router.websocket("/voice/{agent_id}/ws")
-async def voicebot_websocket(websocket: WebSocket, agent_id: str):
-    """Handle Exotel WebSocket by proxying to Bolna sidecar.
 
-    Flow:
-    1. Accept connection, read start event for call metadata
-    2. Create conversation + ephemeral Bolna agent
-    3. Proxy all WebSocket messages between Exotel and Bolna
-    """
+@router.websocket("/voice/ws")
+async def voicebot_websocket(websocket: WebSocket) -> None:
+    """Plivo bidirectional audio WebSocket. Pure proxy to Bolna."""
     await websocket.accept()
-    logger.info("Voicebot WebSocket connected for agent=%s", agent_id)
 
-    call_sid = ""
-    from_number = ""
-    conversation_id: uuid.UUID | None = None
-    bolna_agent_id: str | None = None
-
+    raw_id = websocket.query_params.get("conversation_id")
+    if not raw_id:
+        logger.warning("voicebot_ws: missing conversation_id query param")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
     try:
-        # Read initial events to get call metadata
-        buffered: list[str] = []
-        for _ in range(5):
-            raw = await websocket.receive_text()
-            buffered.append(raw)
-            msg = json.loads(raw)
+        conversation_id = uuid.UUID(raw_id)
+    except ValueError:
+        logger.warning("voicebot_ws: invalid conversation_id=%r", raw_id)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
-            if msg.get("event") == "start":
-                start_data = msg.get("start", {})
-                call_sid = start_data.get("call_sid", "")
-                from_number = start_data.get("from", "")
-                logger.info("Call start: call_sid=%s, from=%s", call_sid, from_number)
-                break
-
-        if not call_sid:
-            logger.error("No start event received, closing")
-            await websocket.close()
-            return
-
-        # Create conversation and Bolna agent
-        async with async_session_factory() as db:
-            conversation_id, bolna_agent_id = await _setup_call(
-                db, agent_id, call_sid, from_number,
-            )
-            await db.commit()
-
+    # Defense against Plivo's 2nd-WS-at-hangup behaviour (Bolna issue #148).
+    if conversation_id in _active_proxies:
         logger.info(
-            "Call setup: conversation=%s, bolna_agent=%s",
-            conversation_id, bolna_agent_id,
+            "voicebot_ws: duplicate connection for conversation=%s — closing",
+            conversation_id,
         )
+        await websocket.close(code=status.WS_1000_NORMAL_CLOSURE)
+        return
 
-        # Proxy WebSocket to Bolna
-        import websockets
-
-        bolna_ws_url = f"{settings.BOLNA_WS_URL}/chat/v1/{bolna_agent_id}"
-        logger.info("Connecting to Bolna: %s", bolna_ws_url)
-
-        async with websockets.connect(bolna_ws_url) as bolna_ws:
-            import asyncio
-
-            # Replay buffered messages to Bolna
-            for msg in buffered:
-                await bolna_ws.send(msg)
-
-            # Bidirectional proxy
-            async def exotel_to_bolna():
-                try:
-                    while True:
-                        data = await websocket.receive_text()
-                        await bolna_ws.send(data)
-                except WebSocketDisconnect:
-                    await bolna_ws.close()
-                except Exception:
-                    pass
-
-            async def bolna_to_exotel():
-                try:
-                    async for data in bolna_ws:
-                        await websocket.send_text(data)
-                except Exception:
-                    pass
-
-            await asyncio.gather(
-                exotel_to_bolna(),
-                bolna_to_exotel(),
+    # Look up Conversation → bolna_agent_id.
+    bolna_agent_id: str | None = None
+    async with async_session_factory() as db:
+        conversation = (await db.execute(
+            select(Conversation).where(Conversation.id == conversation_id)
+        )).scalar_one_or_none()
+        if conversation is None:
+            logger.warning(
+                "voicebot_ws: conversation %s not found", conversation_id,
             )
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+        bolna_agent_id = (conversation.context or {}).get("bolna_agent_id")
 
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected: call_sid=%s", call_sid)
-    except Exception:
-        logger.exception("Voicebot error: call_sid=%s", call_sid)
-    finally:
-        # Finalize
-        if conversation_id:
-            try:
-                async with async_session_factory() as db:
-                    await _finalize_call(db, conversation_id)
-            except Exception:
-                logger.exception("Failed to finalize conversation %s", conversation_id)
-
-        if bolna_agent_id:
-            try:
-                bolna = BolnaService()
-                await bolna.delete_agent(bolna_agent_id)
-            except Exception:
-                logger.exception("Failed to delete Bolna agent %s", bolna_agent_id)
-
-        logger.info("Call ended: call_sid=%s, conversation=%s", call_sid, conversation_id)
-
-
-async def _setup_call(
-    db: AsyncSession,
-    agent_id: str,
-    call_sid: str,
-    from_number: str,
-) -> tuple[uuid.UUID, str]:
-    """Create conversation + ephemeral Bolna agent for this call."""
-    from app.models.conversation import Conversation
-    from app.models.channel import Channel, ChannelType
-    from app.services.orchestrator import ConversationOrchestrator
-
-    agent_uuid = uuid.UUID(agent_id)
-
-    # Create conversation
-    orchestrator = ConversationOrchestrator(db)
-    orch_response = await orchestrator.start_conversation(agent_uuid)
-    conversation_id = orch_response.conversation_id
-
-    # Store call metadata
-    conversation = (await db.execute(
-        select(Conversation).where(Conversation.id == conversation_id)
-    )).scalar_one()
-    conversation.external_user_phone = from_number
-    conversation.context = {
-        **(conversation.context or {}),
-        "channel": "voice",
-        "call_sid": call_sid,
-        "direction": "inbound",
-    }
-
-    channel = (await db.execute(
-        select(Channel).where(
-            Channel.agent_id == agent_uuid,
-            Channel.channel_type == ChannelType.VOICE,
-            Channel.is_active.is_(True),
+    if not bolna_agent_id:
+        logger.warning(
+            "voicebot_ws: no bolna_agent_id on conversation=%s; was the answer_url"
+            " webhook called first?", conversation_id,
         )
-    )).scalar_one_or_none()
-    if channel:
-        conversation.channel_id = channel.id
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        return
 
-    await db.flush()
-
-    # Build Bolna config and create ephemeral agent
-    agent_config = await build_bolna_agent_config(db, agent_uuid)
-    bolna = BolnaService()
-    bolna_agent_id = await bolna.create_call_agent(
-        agent_config=agent_config,
-        conversation_id=conversation_id,
-        system_prompt="",  # Orchestrator handles prompts
+    _active_proxies.add(conversation_id)
+    logger.info(
+        "voicebot_ws: connection opened, conversation=%s, bolna_agent=%s",
+        conversation_id, bolna_agent_id,
     )
 
-    return conversation_id, bolna_agent_id
+    try:
+        await _proxy(websocket, bolna_agent_id, conversation_id)
+    except WebSocketDisconnect:
+        logger.info("voicebot_ws: client disconnected, conversation=%s", conversation_id)
+    except Exception:
+        logger.exception(
+            "voicebot_ws: error in proxy loop, conversation=%s", conversation_id,
+        )
+    finally:
+        _active_proxies.discard(conversation_id)
+        # Clean up the ephemeral Bolna agent. Conversation finalization is
+        # handled by the /webhooks/voice/status callback; we only own the
+        # Bolna-side cleanup here.
+        try:
+            await BolnaService().delete_agent(bolna_agent_id)
+        except Exception:
+            logger.exception(
+                "voicebot_ws: failed to delete Bolna agent %s", bolna_agent_id,
+            )
+        logger.info(
+            "voicebot_ws: connection closed, conversation=%s", conversation_id,
+        )
 
 
-async def _finalize_call(db: AsyncSession, conversation_id: uuid.UUID) -> None:
-    """Mark conversation as completed."""
-    from app.models.conversation import Conversation, ConversationStatus
+async def _proxy(
+    client_ws: WebSocket,
+    bolna_agent_id: str,
+    conversation_id: uuid.UUID,
+) -> None:
+    """Bidirectional frame proxy between Plivo (client_ws) and Bolna."""
+    import websockets
 
-    conversation = (await db.execute(
-        select(Conversation).where(Conversation.id == conversation_id)
-    )).scalar_one_or_none()
+    bolna_ws_url = f"{settings.BOLNA_WS_URL}/chat/v1/{bolna_agent_id}"
+    logger.info(
+        "voicebot_ws: proxying conversation=%s to %s",
+        conversation_id, bolna_ws_url,
+    )
 
-    if conversation and conversation.status.value == "active":
-        conversation.status = ConversationStatus.COMPLETED
-        conversation.ended_at = datetime.now(timezone.utc)
-        await db.commit()
-        logger.info("Voice conversation finalized: %s", conversation_id)
+    async with websockets.connect(bolna_ws_url) as bolna_ws:
+        # Frame counters — logged once at disconnect for diagnostics.
+        counts = {"in": 0, "out": 0}
+
+        async def client_to_bolna() -> None:
+            try:
+                while True:
+                    data = await client_ws.receive_text()
+                    counts["in"] += 1
+                    await bolna_ws.send(data)
+            except WebSocketDisconnect:
+                await bolna_ws.close()
+            except Exception:
+                logger.exception("client_to_bolna proxy error")
+
+        async def bolna_to_client() -> None:
+            try:
+                async for data in bolna_ws:
+                    counts["out"] += 1
+                    await client_ws.send_text(data)
+            except Exception:
+                logger.exception("bolna_to_client proxy error")
+
+        try:
+            await asyncio.gather(client_to_bolna(), bolna_to_client())
+        finally:
+            logger.info(
+                "voicebot_ws: conv=%s frames in=%d out=%d",
+                conversation_id, counts["in"], counts["out"],
+            )
