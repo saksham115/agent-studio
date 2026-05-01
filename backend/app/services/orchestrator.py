@@ -32,6 +32,7 @@ from app.services.knowledge_base_service import KnowledgeBaseService
 from app.services.action_executor import ActionExecutor
 from app.services.guardrail_service import GuardrailService
 from app.services.state_machine import StateMachine
+from app.observability import tracer
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,16 @@ class ConversationOrchestrator:
         conversation_id: uuid.UUID,
         user_message: str,
     ) -> OrchestratorResponse:
+        with tracer.start_as_current_span("orchestrator.process_message") as _root_span:
+            _root_span.set_attribute("conversation.id", str(conversation_id))
+            _root_span.set_attribute("user_message.length", len(user_message))
+            return await self._process_message_impl(conversation_id, user_message)
+
+    async def _process_message_impl(
+        self,
+        conversation_id: uuid.UUID,
+        user_message: str,
+    ) -> OrchestratorResponse:
         """Process an incoming user message and return the agent's response.
 
         This is the main entry-point for the conversation loop.  The full
@@ -166,7 +177,8 @@ class ConversationOrchestrator:
         total_output_tokens = 0
 
         # ---- 1. Load conversation ----------------------------------------
-        conversation = await self._load_conversation(conversation_id)
+        with tracer.start_as_current_span("orchestrator.load_conversation"):
+            conversation = await self._load_conversation(conversation_id)
         if conversation is None:
             raise ValueError(f"Conversation {conversation_id} not found")
 
@@ -184,11 +196,14 @@ class ConversationOrchestrator:
             )
 
         # ---- 3. Input guardrails -----------------------------------------
-        guardrails = await self._load_guardrails(agent.id)
+        with tracer.start_as_current_span("orchestrator.load_guardrails"):
+            guardrails = await self._load_guardrails(agent.id)
         input_guardrails = [g for g in guardrails if g.is_active]
 
         if input_guardrails:
-            input_check = await self.guardrail_service.check_input(user_message, input_guardrails)
+            with tracer.start_as_current_span("orchestrator.input_guardrails") as gspan:
+                gspan.set_attribute("guardrails.count", len(input_guardrails))
+                input_check = await self.guardrail_service.check_input(user_message, input_guardrails)
             if not input_check.passed:
                 # Log triggered guardrail rules
                 for rule in (input_check.triggered_rules or []):
@@ -235,14 +250,17 @@ class ConversationOrchestrator:
         # similarity. build_system_prompt expects a single string, so join
         # them with a blank line so each chunk reads as its own paragraph.
         kb_chunks: list[str] = []
-        try:
-            kb_chunks = await self.kb_service.search(agent.id, user_message, top_k=5)
-        except Exception:
-            logger.warning(
-                "Knowledge base search failed for agent %s — continuing without KB context",
-                agent.id,
-                exc_info=True,
-            )
+        with tracer.start_as_current_span("orchestrator.kb_search") as kb_span:
+            try:
+                kb_chunks = await self.kb_service.search(agent.id, user_message, top_k=5)
+                kb_span.set_attribute("kb.chunks_returned", len(kb_chunks))
+            except Exception:
+                logger.warning(
+                    "Knowledge base search failed for agent %s — continuing without KB context",
+                    agent.id,
+                    exc_info=True,
+                )
+                kb_span.set_attribute("kb.error", True)
         kb_context = "\n\n".join(kb_chunks)
 
         # ---- 6. Build prompt ---------------------------------------------
@@ -270,12 +288,18 @@ class ConversationOrchestrator:
 
         # ---- 7. Call LLM -------------------------------------------------
         start_ts = time.monotonic()
-        llm_response = await self.llm.chat(
-            system_prompt=system_prompt,
-            messages=formatted_messages,
-            tools=tools or None,
-            max_tokens=4096,
-        )
+        with tracer.start_as_current_span("orchestrator.llm_call") as llm_span:
+            llm_span.set_attribute("llm.tools_count", len(tools) if tools else 0)
+            llm_span.set_attribute("llm.messages_count", len(formatted_messages))
+            llm_response = await self.llm.chat(
+                system_prompt=system_prompt,
+                messages=formatted_messages,
+                tools=tools or None,
+                max_tokens=4096,
+            )
+            llm_span.set_attribute("llm.input_tokens", llm_response.input_tokens or 0)
+            llm_span.set_attribute("llm.output_tokens", llm_response.output_tokens or 0)
+            llm_span.set_attribute("llm.tool_calls", len(llm_response.tool_calls or []))
         llm_latency_ms = int((time.monotonic() - start_ts) * 1000)
 
         total_input_tokens += llm_response.input_tokens or 0
