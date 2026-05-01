@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +27,7 @@ from app.api.deps import get_db
 from app.config import settings
 from app.models.channel import Channel, ChannelType, ChannelStatus
 from app.models.channel import WhatsAppProvider as WhatsAppProviderModel
-from app.models.conversation import Conversation
+from app.models.conversation import Conversation, Message, MessageRole
 from app.services.channels.whatsapp.gupshup import GupshupAdapter
 from app.services.channels.whatsapp.meta_cloud import MetaCloudAdapter
 from app.services.channels.whatsapp.provider import WhatsAppProviderBase
@@ -38,6 +38,7 @@ from app.services.channels.voice.plivo_xml import (
     say_response,
 )
 from app.services.channels.voice.handler import VoiceCallHandler
+from app.services.memory import add_memory
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +468,7 @@ async def handle_voice_incoming(
 @router.post("/voice/status")
 async def handle_voice_status(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Plivo hangup_url + status callbacks.
@@ -475,6 +477,13 @@ async def handle_voice_status(
     the linked Conversation. Plivo also opens a transient 2nd WebSocket at
     hangup (Bolna issue #148) — voicebot_ws.py defends against duplicate
     connections; this handler just records the call-end.
+
+    Memory write is deferred via FastAPI :class:`BackgroundTasks`, NOT inline:
+    Plivo's hangup_url has a real timeout (~15s); ``mem0.add()`` is 1.5-4s
+    happy-path and can spike to 10s+ when Pellet is slow. Inline = Plivo
+    timeout → retry → duplicate add() calls. Background = Plivo gets a fast
+    200 OK; the mem0 work runs after the response is sent. Safe because the
+    caller is already gone.
     """
     form_data = await request.form()
     payload = dict(form_data)
@@ -500,7 +509,62 @@ async def handle_voice_status(
                 call_event.call_sid, conversation_id, call_event.status,
             )
 
+            # Schedule mem0 write off the request hot path. Read identity
+            # fields BEFORE the request session closes — the BackgroundTask
+            # opens its own session and can't access a detached row.
+            conv = await db.get(Conversation, conversation_id)
+            if conv and conv.end_user_id is not None:
+                background_tasks.add_task(
+                    _post_call_memory_write,
+                    conversation_id,
+                    conv.end_user_id,
+                    conv.agent_id,
+                )
+
     return {"status": "ok"}
+
+
+async def _post_call_memory_write(
+    conversation_id: uuid.UUID,
+    end_user_id: uuid.UUID,
+    agent_id: uuid.UUID,
+) -> None:
+    """Load USER+ASSISTANT messages and hand them to mem0 for fact extraction.
+
+    Runs AFTER the webhook returns 200. The FastAPI request session
+    (``Depends(get_db)``) is closed by the time BackgroundTasks fire, so
+    we open a fresh session here. mem0 manages its own psycopg pool —
+    sharing our asyncpg session would not have helped anyway.
+
+    Skips SYSTEM messages (state-transition notes pollute extraction) and
+    TOOL messages (raw JSON results aren't user-relevant facts). Empty
+    conversations (no user/assistant exchange) are silently no-op'd —
+    nothing to extract.
+
+    All exceptions inside ``add_memory`` are swallowed there and logged;
+    a memory-extraction failure should never affect the next call's flow.
+    """
+    from app.database import async_session_factory
+
+    async with async_session_factory() as db:
+        stmt = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .where(Message.role.in_([MessageRole.USER, MessageRole.ASSISTANT]))
+            .order_by(Message.created_at.asc())
+        )
+        msgs = (await db.execute(stmt)).scalars().all()
+        if not msgs:
+            logger.info(
+                "Skipping mem0.add for conversation=%s (no user/assistant messages)",
+                conversation_id,
+            )
+            return
+
+        mem0_messages = [
+            {"role": m.role.value, "content": m.content} for m in msgs
+        ]
+        await add_memory(end_user_id, agent_id, mem0_messages)
 
 
 # --------------------------------------------------------------------------

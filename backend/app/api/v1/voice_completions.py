@@ -32,12 +32,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Voice hint prepended to user messages for concise responses
-VOICE_HINT = (
-    "[VOICE CALL: Keep your response under 2-3 short sentences. "
-    "Be conversational and concise — the user is listening, not reading.]\n\n"
-)
-
 
 class ChatMessage(BaseModel):
     role: str
@@ -83,13 +77,16 @@ async def voice_chat_completions(
         user_text[:200],
     )
 
-    # Call orchestrator
+    # Call orchestrator. The voice-style system-prompt section (replaces
+    # the legacy VOICE_HINT user-message prefix) is gated by mode="voice"
+    # — see prompt_builder.build_system_prompt for the rendered text.
     try:
         async with async_session_factory() as db:
             orchestrator = ConversationOrchestrator(db)
             response = await orchestrator.process_message(
                 conversation_id=conversation_id,
-                user_message=VOICE_HINT + user_text,
+                user_message=user_text,
+                mode="voice",
             )
             await db.commit()
     except Exception:

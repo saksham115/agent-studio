@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.channel import Channel, ChannelType
 from app.models.conversation import Conversation, ConversationStatus
 from app.services.channels.whatsapp.types import NormalizedMessage
+from app.services.end_user_service import EndUserService
 from app.services.media_processor import MediaProcessor
 from app.services.orchestrator import ConversationOrchestrator
 
@@ -43,47 +44,79 @@ class WhatsAppMessageHandler:
         """Process an incoming WhatsApp message and return the agent's response.
 
         Flow:
-        1. Look up an existing ACTIVE conversation for this phone + agent pair.
-        2. If none exists, start a new conversation via the orchestrator.
-        3. Set external user metadata on the conversation.
-        4. Pass the message content to the orchestrator for processing.
-        5. Return the orchestrator's response text.
-        """
-        # -- 1. Find existing active conversation for this sender + agent ------
-        conversation = await self._find_active_conversation(
-            agent_id, message.sender_phone
-        )
+        1. Resolve the EndUser identity from the sender's phone number. mem0
+           uses this UUID as ``user_id``, so cross-message memory recall
+           works the same way it does on voice.
+        2. Find an existing ACTIVE conversation for this end-user. Falls back
+           to phone-keyed lookup if EndUser couldn't be resolved (defensive
+           guard for malformed sender phones).
+        3. If no conversation exists, start one via the orchestrator —
+           identity kwargs flow into the Conversation row.
+        4. Process media messages.
+        5. Pass through the orchestrator (mode="text"; voice_style off).
 
-        # -- 2. Start new conversation if needed ------------------------------
+        Memory write-path is intentionally NOT triggered here. WA conversations
+        rarely terminate cleanly (no hangup signal), so a sole post-message
+        ``add_memory`` would build cumulative memory from many short messages.
+        Memory READ still works for free via the orchestrator. Write-path
+        is in the follow-up list (see plan).
+        """
+        # -- 1. Resolve EndUser identity ----------------------------------------
+        end_user = await EndUserService(self.db).get_or_create_by_caller(
+            agent_id, message.sender_phone, name=message.contact_name,
+        )
+        end_user_id = end_user.id if end_user else None
+
+        # -- 2. Find existing active conversation -------------------------------
+        # Prefer the end-user-keyed lookup (hits idx_conversations_end_user_status).
+        # Fall back to phone-keyed lookup when EndUser couldn't be resolved
+        # (e.g. unparseable sender_phone — rare with WA but defended for safety).
+        conversation = None
+        if end_user_id is not None:
+            conversation = await self._find_active_conversation_by_end_user(end_user_id)
+        if conversation is None:
+            conversation = await self._find_active_conversation(
+                agent_id, message.sender_phone
+            )
+
+        # -- 3. Start new conversation if needed --------------------------------
         if conversation is None:
             logger.info(
-                "Starting new WhatsApp conversation for agent=%s phone=%s",
+                "Starting new WhatsApp conversation for agent=%s phone=%s end_user=%s",
                 agent_id,
                 message.sender_phone,
+                end_user_id,
             )
-            start_response = await self.orchestrator.start_conversation(agent_id)
+            start_response = await self.orchestrator.start_conversation(
+                agent_id,
+                end_user_id=end_user_id,
+                external_user_phone=message.sender_phone,
+                external_user_name=message.contact_name,
+            )
             conversation_id = start_response.conversation_id
 
-            # Reload the conversation so we can set metadata on it
+            # Reload to set the channel link. Identity columns are already
+            # written by start_conversation — no inline assignment needed.
             conversation = await self._load_conversation(conversation_id)
             if conversation is None:
                 raise RuntimeError(
                     f"Failed to load newly created conversation {conversation_id}"
                 )
-
-            # -- 3. Set external user metadata + link WhatsApp channel --------
-            conversation.external_user_phone = message.sender_phone
-            conversation.external_user_name = message.contact_name
             channel = await self._find_whatsapp_channel(agent_id)
             if channel:
                 conversation.channel_id = channel.id
-            await self.db.flush()
+                await self.db.flush()
         else:
             conversation_id = conversation.id
+            # Backfill end_user_id on conversations that pre-date this PR's
+            # identity layer (or were started by the legacy phone-keyed
+            # path). Idempotent: skips when already set.
+            if end_user_id is not None and conversation.end_user_id is None:
+                conversation.end_user_id = end_user_id
             # Update contact name if we have a newer one
             if message.contact_name and conversation.external_user_name != message.contact_name:
                 conversation.external_user_name = message.contact_name
-                await self.db.flush()
+            await self.db.flush()
 
         # -- 4. Process media messages ------------------------------------------
         content = message.content
@@ -134,12 +167,32 @@ class WhatsAppMessageHandler:
     async def _find_active_conversation(
         self, agent_id: uuid.UUID, sender_phone: str
     ) -> Conversation | None:
-        """Find an existing active conversation for the given agent + phone."""
+        """Phone-keyed fallback lookup. Used when EndUser resolution fails."""
         stmt = (
             select(Conversation)
             .where(
                 Conversation.agent_id == agent_id,
                 Conversation.external_user_phone == sender_phone,
+                Conversation.status == ConversationStatus.ACTIVE,
+            )
+            .order_by(Conversation.created_at.desc())
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _find_active_conversation_by_end_user(
+        self, end_user_id: uuid.UUID,
+    ) -> Conversation | None:
+        """End-user-keyed lookup — primary path post-PR.
+
+        Hits ``idx_conversations_end_user_status`` (composite index from
+        alembic 004), so this stays fast even with millions of conversations.
+        """
+        stmt = (
+            select(Conversation)
+            .where(
+                Conversation.end_user_id == end_user_id,
                 Conversation.status == ConversationStatus.ACTIVE,
             )
             .order_by(Conversation.created_at.desc())

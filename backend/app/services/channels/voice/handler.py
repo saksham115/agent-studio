@@ -28,7 +28,9 @@ from app.models.conversation import Conversation, ConversationStatus
 from app.services.channels.voice.bolna_config import build_bolna_agent_config
 from app.services.channels.voice.bolna_service import BolnaService
 from app.services.channels.voice.plivo import CallEvent
+from app.services.end_user_service import EndUserService
 from app.services.orchestrator import ConversationOrchestrator
+from app.services.phone_normalizer import normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -57,28 +59,52 @@ class VoiceCallHandler:
             agent_id, call_event.call_sid, call_event.from_number,
         )
 
-        # 1. Create the Conversation via the orchestrator (handles greeting message,
-        #    state machine entry, etc.). Returns the conversation_id.
-        orch_response = await self.orchestrator.start_conversation(agent_id)
+        # 1. Resolve the EndUser. Phone callers go to ``end_users.phone_number``
+        #    (E.164); SIP-Endpoint callers (no DID needed for the demo) go to
+        #    ``end_users.external_id``. Anonymous / blank from_number returns
+        #    None — start_conversation handles that gracefully.
+        raw_from = call_event.from_number
+        end_user = await EndUserService(self.db).get_or_create_by_caller(
+            agent_id, raw_from,
+        )
+        end_user_id = end_user.id if end_user else None
+
+        # Match the channel-side dispatch to what we wrote in the EndUser
+        # row, so external_user_phone / external_user_id columns align with
+        # how this caller is identified going forward.
+        if normalize_phone(raw_from):
+            ext_phone, ext_id = raw_from, None
+        else:
+            ext_phone, ext_id = None, (raw_from or None)
+
+        # 2. Create the Conversation via the orchestrator. Identity kwargs
+        #    are persisted there (see orchestrator.start_conversation), so
+        #    we no longer write them inline below.
+        orch_response = await self.orchestrator.start_conversation(
+            agent_id,
+            end_user_id=end_user_id,
+            external_user_phone=ext_phone,
+            external_user_id=ext_id,
+        )
         conversation_id = orch_response.conversation_id
 
-        # 2. Build the Bolna agent_config from our DB models (language / voice
+        # 3. Build the Bolna agent_config from our DB models (language / voice
         #    / Sarvam config / orchestrator base_url injection).
         agent_config = await build_bolna_agent_config(self.db, agent_id)
 
-        # 3. Create the ephemeral Bolna agent (one per call).
+        # 4. Create the ephemeral Bolna agent (one per call).
         bolna_agent_id = await self.bolna.create_call_agent(
             agent_config=agent_config,
             conversation_id=conversation_id,
             system_prompt="",
         )
 
-        # 4. Stash call metadata on the Conversation. context.call_sid is the
+        # 5. Stash call metadata on the Conversation. context.call_sid is the
         #    Plivo CallUUID (key name preserved for back-compat). bolna_agent_id
-        #    is what voicebot_ws.py reads on WS connect.
+        #    is what voicebot_ws.py reads on WS connect. external_user_phone is
+        #    no longer set here — start_conversation owns identity columns now.
         conversation = await self._load_conversation(conversation_id)
         if conversation is not None:
-            conversation.external_user_phone = call_event.from_number
             conversation.context = {
                 **(conversation.context or {}),
                 "channel": "voice",

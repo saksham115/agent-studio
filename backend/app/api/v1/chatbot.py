@@ -116,20 +116,38 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     agent: Agent = Depends(validate_api_key),
 ) -> ChatSessionResponse:
-    """Create a new chat session with the agent."""
+    """Create a new chat session with the agent.
+
+    When ``body.user_id`` is provided, we resolve it to an EndUser so cross-
+    session memory recall works the same way it does on voice/WA. The
+    chatbot's user_id is rarely a phone number; ``normalize_phone`` will
+    fail to parse and the value lands in ``end_users.external_id``.
+
+    Anonymous sessions (no user_id) skip EndUser binding entirely — the
+    Conversation row gets ``end_user_id=NULL`` and memory is per-session.
+    """
+    from app.services.end_user_service import EndUserService
     from app.services.orchestrator import ConversationOrchestrator
 
+    end_user_id: uuid.UUID | None = None
+    if body and body.user_id:
+        end_user = await EndUserService(db).get_or_create_by_caller(
+            agent_id, body.user_id, name=body.user_name,
+        )
+        end_user_id = end_user.id if end_user else None
+
     orchestrator = ConversationOrchestrator(db)
-    conversation = await orchestrator.start_conversation(
+    response = await orchestrator.start_conversation(
         agent_id=agent_id,
+        end_user_id=end_user_id,
         external_user_id=body.user_id if body else None,
         external_user_name=body.user_name if body else None,
     )
 
     return ChatSessionResponse(
-        session_id=conversation.id,
+        session_id=response.conversation_id,
         agent_id=agent_id,
-        status=conversation.status.value,
+        status=response.status,
         welcome_message=agent.welcome_message,
     )
 
