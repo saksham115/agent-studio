@@ -11,6 +11,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.agent import Agent
+    from app.models.end_user import EndUser
 
 
 class ConversationStatus(str, enum.Enum):
@@ -39,6 +40,17 @@ class Conversation(Base):
     channel_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
     )
+    # FK to end_users — the identity layer that maps callers (phone / SIP URI /
+    # chatbot user_id) to a stable UUID handed to mem0 as user_id. Nullable:
+    # anonymous callers and pre-backfill rows have it NULL. Composite index
+    # idx_conversations_end_user_status (added in alembic 004) covers the
+    # active-conversation lookup for WhatsApp/voice/chatbot — no separate
+    # column-level index needed.
+    end_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("end_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     external_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     external_user_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     external_user_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -65,6 +77,11 @@ class Conversation(Base):
     )
 
     agent: Mapped["Agent"] = relationship("Agent", back_populates="conversations")
+    end_user: Mapped["EndUser | None"] = relationship(
+        "EndUser",  # forward-ref string sidesteps circular import
+        back_populates="conversations",
+        lazy="select",  # never lazy="raise" — explicit code paths read this
+    )
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan",
         order_by="Message.created_at",

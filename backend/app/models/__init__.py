@@ -6,6 +6,7 @@ from app.models.state import State, Transition
 from app.models.channel import Channel, WhatsAppProvider, ChatbotApiKey
 from app.models.guardrail import Guardrail
 from app.models.conversation import Conversation, Message
+from app.models.end_user import EndUser
 from app.models.audit import ActionExecution, GuardrailTrigger, StateTransitionLog
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "Guardrail",
     "Conversation",
     "Message",
+    "EndUser",
     "ActionExecution",
     "GuardrailTrigger",
     "StateTransitionLog",
