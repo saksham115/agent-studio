@@ -16,6 +16,7 @@ Create Date: 2026-04-30
 """
 
 from alembic import op
+import sqlalchemy as sa
 
 
 revision = "003_widen_external_user_phone"
@@ -28,8 +29,8 @@ def upgrade() -> None:
     op.alter_column(
         "conversations",
         "external_user_phone",
-        type_="VARCHAR(64)",
-        existing_type="VARCHAR(20)",
+        type_=sa.String(length=64),
+        existing_type=sa.String(length=20),
         existing_nullable=True,
     )
 
@@ -42,7 +43,7 @@ def downgrade() -> None:
     op.alter_column(
         "conversations",
         "external_user_phone",
-        type_="VARCHAR(20)",
-        existing_type="VARCHAR(64)",
+        type_=sa.String(length=20),
+        existing_type=sa.String(length=64),
         existing_nullable=True,
     )
