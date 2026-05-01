@@ -35,6 +35,7 @@ logger = configure_logger(__name__)
 # conditional on SMART_TURN_ENABLED env var, disabled = native Bolna behavior.
 # -----------------------------------------------------------------------------
 from smart_turn import install_patches, drop_state_for_ws, warm_up
+from observability import init_tracing, tracer
 
 install_patches()
 
@@ -45,6 +46,7 @@ redis_pool = redis.ConnectionPool.from_url(
 redis_client = redis.Redis.from_pool(redis_pool)
 
 app = FastAPI(title="Bolna Voice Server")
+init_tracing(app)
 
 
 @app.on_event("startup")
@@ -143,15 +145,22 @@ async def websocket_endpoint(agent_id: str, websocket: WebSocket):
 
     assistant_manager = AssistantManager(agent_config, websocket, agent_id, **extra_kwargs)
 
-    try:
-        async for index, task_output in assistant_manager.run(local=True):
-            logger.info(f"Task {index} output: {str(task_output)[:200]}")
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected for agent={agent_id}")
-    except Exception as e:
-        logger.error(f"Error in agent {agent_id}: {e}")
-        traceback.print_exc()
-    finally:
-        # Drop smart-turn per-call state. Uses the same websocket the input
-        # handler used, so the ws-to-sid mapping resolves correctly.
-        drop_state_for_ws(websocket)
+    # One span per call (the WS connection lifetime). Auto-instrumentation
+    # doesn't wrap WebSocket message loops, so we open this manually so the
+    # backend's voice.completions calls (which the LLM stage triggers) nest
+    # underneath via W3C tracecontext propagation.
+    with tracer.start_as_current_span("bolna.call") as call_span:
+        call_span.set_attribute("bolna.agent_id", agent_id)
+        try:
+            async for index, task_output in assistant_manager.run(local=True):
+                logger.info(f"Task {index} output: {str(task_output)[:200]}")
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket disconnected for agent={agent_id}")
+        except Exception as e:
+            logger.error(f"Error in agent {agent_id}: {e}")
+            call_span.set_attribute("bolna.error", True)
+            traceback.print_exc()
+        finally:
+            # Drop smart-turn per-call state. Uses the same websocket the input
+            # handler used, so the ws-to-sid mapping resolves correctly.
+            drop_state_for_ws(websocket)

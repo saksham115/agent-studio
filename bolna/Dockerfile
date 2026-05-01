@@ -19,6 +19,12 @@ RUN pip install --no-cache-dir \
       "transformers>=4.44" \
       "numpy>=1.26" \
       "pytest>=8.0" \
+      "opentelemetry-api>=1.27.0" \
+      "opentelemetry-sdk>=1.27.0" \
+      "opentelemetry-exporter-otlp-proto-http>=1.27.0" \
+      "opentelemetry-instrumentation-fastapi>=0.48b0" \
+      "opentelemetry-instrumentation-httpx>=0.48b0" \
+      "opentelemetry-instrumentation-redis>=0.48b0" \
     && apt-get update && apt-get install -y --no-install-recommends curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
@@ -30,6 +36,7 @@ RUN mkdir -p /opt/smart-turn && \
       https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx
 
 COPY smart_turn.py /app/
+COPY observability.py /app/
 COPY tests /app/tests
 COPY server.py /app/
 
