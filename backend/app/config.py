@@ -40,6 +40,22 @@ class Settings(BaseSettings):
     BOLNA_WS_URL: str = "ws://localhost:5001"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
+    # Postgres connection components — mem0's pgvector backend wants discrete
+    # fields (it builds its own psycopg connection, doesn't reuse our asyncpg
+    # SQLAlchemy pool). Default values match docker-compose's local Postgres.
+    PG_HOST: str = "localhost"
+    PG_PORT: int = 5432
+    PG_USER: str = "postgres"
+    PG_PASSWORD: str = "postgres"
+    PG_DATABASE: str = "agent_studio"
+
+    # Phone normalization region default — Indian numbers without a country
+    # code parse correctly when this is "IN".
+    DEFAULT_PHONE_REGION: str = "IN"
+
+    # mem0 pings telemetry on first call by default. Off in our deployment.
+    MEM0_TELEMETRY: bool = False
+
     @property
     def public_ws_url(self) -> str:
         """Public WebSocket URL Plivo uses to reach our backend.
