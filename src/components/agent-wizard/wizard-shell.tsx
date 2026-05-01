@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { MarkerType } from "@xyflow/react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -343,13 +344,15 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
 
     async function loadAgent() {
       try {
-        const [agent, channelsRes, kbRes, actionsRes, guardrailsRes] = await Promise.all([
-          agentApi.get(initialAgentId!),
-          channelApi.list(initialAgentId!).catch(() => ({ items: [] })),
-          kbApi.listDocuments(initialAgentId!).catch(() => ({ items: [] })),
-          actionApi.list(initialAgentId!).catch(() => ({ items: [] })),
-          guardrailApi.list(initialAgentId!).catch(() => ({ items: [] })),
-        ]);
+        const [agent, channelsRes, kbRes, actionsRes, guardrailsRes, stateRes] =
+          await Promise.all([
+            agentApi.get(initialAgentId!),
+            channelApi.list(initialAgentId!).catch(() => ({ items: [] })),
+            kbApi.listDocuments(initialAgentId!).catch(() => ({ items: [] })),
+            actionApi.list(initialAgentId!).catch(() => ({ items: [] })),
+            guardrailApi.list(initialAgentId!).catch(() => ({ items: [] })),
+            stateApi.get(initialAgentId!).catch(() => ({ nodes: [], edges: [] })),
+          ]);
 
         const channels = channelsRes?.items ?? [];
 
@@ -433,6 +436,65 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
         >;
         const guardrails = guardrailItems.map(guardrailBackendToUi);
 
+        // Map backend state diagram → React Flow shape. Without this,
+        // re-editing an agent silently presents an empty diagram which
+        // overwrites the saved one on next save (load-gap bug).
+        const backendStateNodes = (stateRes?.nodes ?? []) as Array<
+          Record<string, any>
+        >;
+        const backendStateEdges = (stateRes?.edges ?? []) as Array<
+          Record<string, any>
+        >;
+        const reactNodes = backendStateNodes.map((s) => ({
+          id: String(s.id),
+          type: (s.metadata?.reactFlowType as string) ?? "stateNode",
+          position: {
+            x: s.position_x ?? 0,
+            y: s.position_y ?? 0,
+          },
+          data: {
+            label: (s.name as string) ?? "Unnamed",
+            description: (s.description as string) ?? "",
+            instructions: (s.instructions as string) ?? "",
+            maxTurns: (s.metadata?.maxTurns as number) ?? 5,
+            nodeType:
+              (s.metadata?.nodeType as
+                | "start"
+                | "normal"
+                | "terminal"
+                | "branch") ??
+              (s.is_initial
+                ? "start"
+                : s.is_terminal
+                ? "terminal"
+                : "normal"),
+          },
+        }));
+        const reactEdges = backendStateEdges.map((e) => ({
+          id: String(e.id),
+          source: String(e.from_state_id),
+          target: String(e.to_state_id),
+          type: (e.metadata?.reactFlowType as string) ?? "smoothstep",
+          label: (e.condition as string) ?? (e.description as string) ?? "",
+          markerEnd:
+            (e.metadata?.markerEnd as Record<string, unknown>) ?? {
+              type: MarkerType.ArrowClosed,
+              width: 16,
+              height: 16,
+            },
+          style: (e.metadata?.style as Record<string, unknown>) ?? {
+            strokeWidth: 2,
+          },
+          labelStyle: (e.metadata?.labelStyle as Record<string, unknown>) ?? {
+            fontSize: 10,
+            fontWeight: 500,
+          },
+          labelBgStyle: (e.metadata?.labelBgStyle as Record<
+            string,
+            unknown
+          >) ?? { fillOpacity: 0.8 },
+        }));
+
         setFormData((prev) => ({
           ...prev,
           identity: {
@@ -451,6 +513,10 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           actions: { actions },
           guardrails: { guardrails },
           channels: channelsState,
+          stateDiagram: {
+            nodes: reactNodes.length > 0 ? reactNodes : prev.stateDiagram.nodes,
+            edges: reactEdges.length > 0 ? reactEdges : prev.stateDiagram.edges,
+          },
         }));
       } catch (err) {
         console.error("Failed to load agent for editing:", err);
@@ -553,6 +619,7 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
             id: n.id,
             name: n.data?.label ?? n.id,
             description: n.data?.description ?? null,
+            instructions: n.data?.instructions ?? null,
             is_initial: nodeType === "start",
             is_terminal: nodeType === "terminal",
             position_x: n.position?.x != null ? Math.round(n.position.x) : null,
