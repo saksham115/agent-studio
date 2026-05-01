@@ -40,7 +40,7 @@ class Conversation(Base):
         UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
     )
     external_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    external_user_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    external_user_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     external_user_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[ConversationStatus] = mapped_column(
         Enum(ConversationStatus, values_callable=lambda x: [e.value for e in x], name="conversation_status_enum"),

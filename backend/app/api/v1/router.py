@@ -15,5 +15,5 @@ v1_router.include_router(conversations.router, prefix="/conversations", tags=["C
 v1_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 v1_router.include_router(chatbot.router, prefix="/chat", tags=["Chatbot API"])
 v1_router.include_router(webhooks.router, prefix="/webhooks", tags=["Webhooks"])
-v1_router.include_router(voicebot_ws.router, prefix="/webhooks", tags=["Voicebot WebSocket"])
+v1_router.include_router(voicebot_ws.router, tags=["Voicebot WebSocket"])
 v1_router.include_router(voice_completions.router, prefix="/voice", tags=["Voice Completions"])

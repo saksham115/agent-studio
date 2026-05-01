@@ -102,7 +102,12 @@ services:
       S3_BUCKET: agent-studio-uploads
       AWS_REGION: ap-south-1
       SARVAM_API_KEY: ${SARVAM_API_KEY:-}
-      EXOTEL_API_KEY: ${EXOTEL_API_KEY:-}
+      PLIVO_AUTH_ID: ${PLIVO_AUTH_ID:-}
+      PLIVO_AUTH_TOKEN: ${PLIVO_AUTH_TOKEN:-}
+      PLIVO_APPLICATION_ID: ${PLIVO_APPLICATION_ID:-}
+      PLIVO_VERIFY_SIGNATURES: ${PLIVO_VERIFY_SIGNATURES:-false}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+      PUBLIC_WS_URL: ${PUBLIC_WS_URL:-}
       GUPSHUP_API_KEY: ${GUPSHUP_API_KEY:-}
       CORS_ORIGINS: '["http://localhost:3000"]'
     volumes:
