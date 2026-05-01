@@ -21,8 +21,27 @@ from app.models.conversation import Message, MessageRole
 # Maximum number of recent messages sent to Claude in the messages array.
 MAX_MESSAGES = 40
 
-# Number of recent messages included in a conversation summary.
-SUMMARY_MESSAGE_COUNT = 5
+# Name of the system meta-tool the orchestrator uses to let the LLM advance
+# the conversation through the state diagram. Double-underscore-prefixed so
+# it can never collide with a user-defined Action name (``_slugify`` strips
+# leading underscores from user names — see _slugify below).
+TRANSITION_TOOL_NAME = "__transition_to_state"
+
+
+def _max_turns(state: State | None) -> int | None:
+    """Read the configured `maxTurns` from a state's metadata.
+
+    Wizard saves the field as camelCase ``metadata.maxTurns``. Returns
+    ``None`` when unset, non-numeric, zero, or negative — the orchestrator
+    treats those as "no limit, no force-pick".
+    """
+    if state is None or state.metadata_json is None:
+        return None
+    raw = state.metadata_json.get("maxTurns")
+    if not isinstance(raw, (int, str)) or not str(raw).isdigit():
+        return None
+    value = int(raw)
+    return value if value > 0 else None
 
 
 class PromptBuilder:
@@ -42,20 +61,24 @@ class PromptBuilder:
         current_state: State | None,
         guardrails: list[Guardrail],
         kb_context: str,
+        state_turn_count: int = 0,
+        max_turns: int | None = None,
     ) -> str:
         """Assemble the full system prompt from agent configuration.
 
-        The prompt is built from distinct sections, each clearly separated
-        by markdown headers so Claude can parse them easily:
+        The state-aware ``# YOUR CURRENT TASK`` block is promoted to the
+        very top so the LLM treats it as the primary directive. Section
+        order:
 
-        1. Agent base system prompt
-        2. Persona
-        3. Languages
-        4. Current state (name, description, instructions, max turns)
-        5. Available transitions from the current state
-        6. Guardrail constraints
-        7. Knowledge-base context
-        8. Fallback / escalation instructions
+        0. ``# YOUR CURRENT TASK`` — current state name, goal, instructions,
+           pacing, and available next-state transitions (only when an
+           ``current_state`` is provided).
+        1. Agent base system prompt.
+        2. Persona.
+        3. Languages.
+        4. Guardrail constraints.
+        5. Knowledge-base context.
+        6. Fallback / escalation instructions.
 
         Parameters
         ----------
@@ -69,13 +92,28 @@ class PromptBuilder:
         kb_context:
             Pre-retrieved knowledge-base text relevant to the current
             user query.  Empty string when nothing was retrieved.
+        state_turn_count:
+            How many agent turns have already completed in the current
+            state (incremented at the top of ``process_message``). Used
+            to render the pacing line.
+        max_turns:
+            Configured ``metadata.maxTurns`` for the current state, or
+            ``None`` when unset. When ``state_turn_count >= max_turns``
+            the pacing line escalates to a FINAL TURN warning.
         """
         sections: list[str] = []
+
+        # 0. # YOUR CURRENT TASK (top-of-prompt) ------------------------
+        if current_state is not None:
+            sections.append(
+                self._build_current_task_section(
+                    current_state, state_turn_count, max_turns,
+                )
+            )
 
         # 1. Base system prompt -----------------------------------------
         base_prompt = (agent.system_prompt or "").strip()
         if base_prompt:
-            # Substitute template placeholders
             base_prompt = base_prompt.replace("{{persona_name}}", agent.persona or "Agent")
             base_prompt = base_prompt.replace("{{customer_name}}", agent.description or "the company")
             sections.append(base_prompt)
@@ -95,28 +133,18 @@ class PromptBuilder:
                 f"unless they explicitly ask for a different language."
             )
 
-        # 4. Current state block ----------------------------------------
-        if current_state is not None:
-            sections.append(self._build_state_section(current_state))
-
-        # 5. Available transitions --------------------------------------
-        if current_state is not None:
-            transitions_section = self._build_transitions_section(current_state)
-            if transitions_section:
-                sections.append(transitions_section)
-
-        # 6. Guardrails -------------------------------------------------
+        # 4. Guardrails -------------------------------------------------
         guardrails_section = self._build_guardrails_section(guardrails)
         if guardrails_section:
             sections.append(guardrails_section)
 
-        # 7. Knowledge-base context -------------------------------------
+        # 5. Knowledge-base context -------------------------------------
         if kb_context and kb_context.strip():
             sections.append(
                 f"## Relevant Knowledge\n{kb_context.strip()}"
             )
 
-        # 8. Fallback / escalation --------------------------------------
+        # 6. Fallback / escalation --------------------------------------
         fallback_section = self._build_fallback_section(agent)
         if fallback_section:
             sections.append(fallback_section)
@@ -127,49 +155,25 @@ class PromptBuilder:
     # Tool definitions
     # ------------------------------------------------------------------
 
-    def build_tools(self, actions: list[Action]) -> list[dict]:
-        """Convert agent Action models to OpenAI-compatible tool definitions.
+    def build_tools(
+        self,
+        actions: list[Action],
+        current_state: State | None = None,
+    ) -> list[dict]:
+        """Convert agent Actions + the system transition tool to OpenAI tool defs.
 
-        Each ``Action`` is mapped to a tool dict with the shape expected
-        by the OpenAI chat completions API::
+        Returns the user's Action tools (existing behaviour) followed by the
+        ``__transition_to_state`` meta-tool when ``current_state`` has at
+        least one outgoing transition and is not terminal. The transition
+        tool's ``target_state`` parameter is constrained via JSON Schema
+        ``enum`` to the unique outgoing target names — most providers
+        honour this; ``Orchestrator._handle_transition_tool`` re-validates
+        as defence in depth.
 
-            {
-                "type": "function",
-                "function": {
-                    "name": "generate_payment_link",
-                    "description": "...",
-                    "parameters": {
-                        "type": "object",
-                        "properties": { ... },
-                        "required": [ ... ]
-                    }
-                }
-            }
-
-        The ``action.input_params`` JSONB column stores parameter
-        definitions in the format::
-
-            {
-                "customer_name": {
-                    "type": "string",
-                    "description": "Customer full name",
-                    "required": true
-                },
-                ...
-            }
-
-        This method converts that to proper JSON Schema.
-
-        Parameters
-        ----------
-        actions:
-            Active ``Action`` ORM objects for the agent.
-
-        Returns
-        -------
-        list[dict]
-            Tool definitions ready for the ``tools`` parameter of the
-            OpenAI-compatible chat completions API.
+        See module-level ``TRANSITION_TOOL_NAME`` for the system tool's
+        reserved name (double-underscore-prefixed; cannot collide with
+        user-defined Action names because ``_slugify`` strips leading
+        underscores).
         """
         tools: list[dict] = []
 
@@ -193,7 +197,63 @@ class PromptBuilder:
                 }
             )
 
+        transition_tool = self._build_transition_tool(current_state)
+        if transition_tool is not None:
+            tools.append(transition_tool)
+
         return tools
+
+    @staticmethod
+    def _build_transition_tool(state: State | None) -> dict | None:
+        """Build the ``__transition_to_state`` system tool definition.
+
+        Returns ``None`` when:
+        - ``state`` is ``None`` (stateless agent),
+        - ``state.is_terminal`` (no outgoing transitions),
+        - or there are no outgoing transitions with valid target states.
+
+        Multi-edges to the same target collapse to a single ``enum`` entry
+        (the prompt's "Available next steps" still shows them grouped with
+        OR-joined conditions).
+        """
+        if state is None or state.is_terminal:
+            return None
+        targets = list(dict.fromkeys(
+            t.to_state.name for t in (state.outgoing_transitions or [])
+            if t.to_state is not None
+        ))
+        if not targets:
+            return None
+        return {
+            "type": "function",
+            "function": {
+                "name": TRANSITION_TOOL_NAME,
+                "description": (
+                    "Move the conversation to a new state when the current "
+                    "state's goal is met or a trigger condition appears. "
+                    "Available targets are listed in your system prompt's "
+                    "'Available next steps' section."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target_state": {
+                            "type": "string",
+                            "enum": targets,
+                            "description": "Name of the target state.",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": (
+                                "One-sentence justification for the "
+                                "transition based on the conversation."
+                            ),
+                        },
+                    },
+                    "required": ["target_state", "reason"],
+                },
+            },
+        }
 
     # ------------------------------------------------------------------
     # Message formatting
@@ -249,112 +309,106 @@ class PromptBuilder:
 
         return formatted
 
-    # ------------------------------------------------------------------
-    # Conversation summary (for transition evaluation)
-    # ------------------------------------------------------------------
-
-    def build_conversation_summary(
-        self,
-        messages: list[Message],
-        current_state: State | None = None,
-    ) -> str:
-        """Build a brief text summary of the conversation for condition eval.
-
-        Includes the last few messages with role labels and optionally the
-        name of the current state the conversation is in.
-
-        Parameters
-        ----------
-        messages:
-            Full ordered list of conversation messages.
-        current_state:
-            The current state the conversation is in, if any.
-
-        Returns
-        -------
-        str
-            A human-readable summary suitable for passing to
-            ``LLMClient.evaluate_condition``.
-        """
-        parts: list[str] = []
-
-        if current_state:
-            parts.append(f"Current state: {current_state.name}")
-            if current_state.description:
-                parts.append(f"State purpose: {current_state.description}")
-
-        recent = messages[-SUMMARY_MESSAGE_COUNT:]
-
-        if recent:
-            parts.append("\nRecent messages:")
-            for msg in recent:
-                role_label = msg.role.value.upper()
-                # Truncate very long messages for the summary.
-                content = msg.content
-                if len(content) > 300:
-                    content = content[:297] + "..."
-                parts.append(f"  [{role_label}]: {content}")
-
-        if not parts:
-            return "No conversation history available."
-
-        return "\n".join(parts)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build_state_section(state: State) -> str:
-        """Format the current-state block for the system prompt."""
-        lines = [f"## Current State: {state.name}"]
+    def _build_current_task_section(
+        state: State,
+        state_turn_count: int,
+        max_turns: int | None,
+    ) -> str:
+        """Format the top-of-prompt ``# YOUR CURRENT TASK`` block.
 
-        if state.description:
-            lines.append(state.description)
+        Renders sections conditionally:
 
-        if state.instructions:
-            lines.append(f"\n### State Instructions\n{state.instructions}")
+        - ``## Goal`` from ``state.description`` (always present in
+          practice).
+        - ``## Instructions`` only when ``state.instructions`` is a
+          non-empty, non-whitespace string. Pre-PR rows have NULL here;
+          for those, the section is omitted entirely.
+        - ``## Conversation pacing`` only when ``max_turns`` is set
+          (non-None). Renders FINAL-TURN escalation text once
+          ``state_turn_count >= max_turns`` (the counter is incremented at
+          the top of ``process_message`` before the prompt is built, so
+          the value the LLM sees is the count of turns about to happen
+          including this one).
+        - ``## Available next steps`` lists outgoing transitions, grouped
+          by target name (multi-edges with different conditions OR-
+          collapse into one bullet). Replaced by a "this is a terminal
+          state" line when ``state.is_terminal``.
 
-        meta = state.metadata_json or {}
-        max_turns = meta.get("max_turns")
+        Closes with a directive to call the ``__transition_to_state`` tool
+        with the target state name and a reason — matches the tool the
+        orchestrator wires in via ``build_tools``.
+        """
+        lines: list[str] = ["# YOUR CURRENT TASK", "", f"You are in state: **{state.name}**"]
+
+        # Goal
+        if state.description and state.description.strip():
+            lines += ["", "## Goal", state.description.strip()]
+
+        # Instructions — omit when None/blank
+        if state.instructions and state.instructions.strip():
+            lines += ["", "## Instructions", state.instructions.strip()]
+
+        # Pacing — omit when no maxTurns configured
         if max_turns is not None:
-            lines.append(
-                f"\nYou have a maximum of {max_turns} turns in this state. "
-                f"Work efficiently within this limit."
-            )
+            lines.append("")
+            lines.append("## Conversation pacing")
+            if state_turn_count >= max_turns:
+                lines.append(
+                    "FINAL TURN — you MUST transition this turn or the "
+                    "conversation will auto-advance."
+                )
+            else:
+                lines.append(
+                    f"Turn {state_turn_count} of {max_turns} in this state."
+                )
 
+        # Available next steps (or terminal-state notice)
+        lines.append("")
         if state.is_terminal:
+            lines.append("## Available next steps")
             lines.append(
-                "\nThis is a terminal state. Wrap up the conversation "
-                "appropriately when the objective is met."
+                "This is a terminal state. Wrap up the conversation; do not "
+                "transition."
             )
+        else:
+            transitions: list[Transition] = state.outgoing_transitions or []
+            if transitions:
+                # Group by target name so multi-edges to the same target
+                # collapse into one bullet whose conditions are OR-joined.
+                by_target: dict[str, list[str]] = {}
+                for t in transitions:
+                    if t.to_state is None:
+                        continue
+                    cond = (t.condition or t.description or "").strip()
+                    by_target.setdefault(t.to_state.name, []).append(cond)
+                if by_target:
+                    lines.append("## Available next steps")
+                    for target, conds in by_target.items():
+                        nonempty = [c for c in conds if c]
+                        if nonempty:
+                            lines.append(
+                                f"- **{target}** — {' OR '.join(nonempty)}"
+                            )
+                        else:
+                            lines.append(f"- **{target}**")
+                    lines.append("")
+                    lines.append(
+                        f"To advance the conversation, call the "
+                        f"`{TRANSITION_TOOL_NAME}` tool with the target state "
+                        f"name and a brief reason. ONLY transition when the "
+                        f"goal is genuinely met or a specific trigger "
+                        f"appears. Stay in this state otherwise. Your reply "
+                        f"to the user should come AFTER any transition "
+                        f"decision."
+                    )
 
-        return "\n".join(lines)
-
-    @staticmethod
-    def _build_transitions_section(state: State) -> str:
-        """Format available transitions from the current state."""
-        transitions: list[Transition] = state.outgoing_transitions or []
-        if not transitions:
-            return ""
-
-        # Sort by priority (higher priority first).
-        sorted_transitions = sorted(
-            transitions, key=lambda t: t.priority, reverse=True
-        )
-
-        lines = ["## Available Transitions"]
-        lines.append(
-            "When any of the following conditions are met, the conversation "
-            "will move to the corresponding next state:"
-        )
-
-        for idx, t in enumerate(sorted_transitions, start=1):
-            target_name = t.to_state.name if t.to_state else "unknown"
-            condition_text = t.condition or t.description or "No condition specified"
-            lines.append(f"{idx}. **{target_name}**: {condition_text}")
-
-        return "\n".join(lines)
+        return "\n".join(lines).rstrip()
 
     @staticmethod
     def _build_guardrails_section(guardrails: list[Guardrail]) -> str:
