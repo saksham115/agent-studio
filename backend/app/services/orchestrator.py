@@ -15,6 +15,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,11 +27,13 @@ from app.models.state import State
 from app.models.action import Action
 from app.models.guardrail import Guardrail
 from app.models.audit import ActionExecution, GuardrailTrigger
-from app.services.llm_client import LLMClient
-from app.services.prompt_builder import PromptBuilder
-from app.services.knowledge_base_service import KnowledgeBaseService
 from app.services.action_executor import ActionExecutor
+from app.services.end_user_service import EndUserService
 from app.services.guardrail_service import GuardrailService
+from app.services.knowledge_base_service import KnowledgeBaseService
+from app.services.llm_client import LLMClient
+from app.services.memory import get_user_memories
+from app.services.prompt_builder import PromptBuilder
 from app.services.state_machine import StateMachine
 
 logger = logging.getLogger(__name__)
@@ -83,15 +86,38 @@ class ConversationOrchestrator:
     # Public API
     # ------------------------------------------------------------------
 
-    async def start_conversation(self, agent_id: uuid.UUID) -> OrchestratorResponse:
+    async def start_conversation(
+        self,
+        agent_id: uuid.UUID,
+        *,
+        end_user_id: uuid.UUID | None = None,
+        external_user_id: str | None = None,
+        external_user_phone: str | None = None,
+        external_user_name: str | None = None,
+    ) -> OrchestratorResponse:
         """Create a new conversation for the given agent.
 
         Sets the current state to the agent's initial state (if one exists)
         and stores the welcome message (if configured) as the first
         assistant message.
 
-        Returns an :class:`OrchestratorResponse` with the welcome message
-        or a sensible default greeting.
+        Caller-identity kwargs are persisted to the Conversation row so the
+        UI / audit / WhatsApp lookup paths can find the conversation by
+        the caller's identifiers later. Channels resolve these and pass
+        them in:
+
+        - ``end_user_id`` — the EndUser UUID minted by
+          ``EndUserService.get_or_create_by_caller``. Used as mem0's
+          ``user_id``.
+        - ``external_user_phone`` / ``external_user_id`` — the dispatched
+          identifier (E.164 phone if it parsed; the raw caller string
+          otherwise — chatbot user_id, SIP URI). Exactly one is set per
+          caller; the other is None.
+        - ``external_user_name`` — display name when available (WhatsApp
+          contact name, chatbot client-supplied name).
+
+        Previously these kwargs were silently dropped at the chatbot layer
+        (chatbot.py:125) — fixing that side-effect in passing.
         """
 
         # Load agent
@@ -111,6 +137,10 @@ class ConversationOrchestrator:
             current_state_id=initial_state.id if initial_state else None,
             context={},
             message_count=0,
+            end_user_id=end_user_id,
+            external_user_id=external_user_id,
+            external_user_phone=external_user_phone,
+            external_user_name=external_user_name,
         )
         self.db.add(conversation)
         await self.db.flush()
@@ -128,6 +158,13 @@ class ConversationOrchestrator:
         conversation.message_count = 1
         await self.db.flush()
 
+        # Bump the EndUser conversation counter atomically. Done after the
+        # Conversation flush so a failure here doesn't orphan a stale count
+        # against a non-existent conversation. This is a separate UPDATE so
+        # concurrent calls don't read-modify-write race.
+        if end_user_id is not None:
+            await EndUserService(self.db).increment_conversation_count(end_user_id)
+
         return OrchestratorResponse(
             message=welcome_text,
             conversation_id=conversation.id,
@@ -139,6 +176,8 @@ class ConversationOrchestrator:
         self,
         conversation_id: uuid.UUID,
         user_message: str,
+        *,
+        mode: Literal["voice", "text"] = "text",
     ) -> OrchestratorResponse:
         """Process an incoming user message and return the agent's response.
 
@@ -255,11 +294,25 @@ class ConversationOrchestrator:
         # Load recent messages from the DB (the relationship may be stale)
         messages_list = await self._load_messages(conversation_id)
 
+        # Cross-call memory recall (mem0). Anonymous calls have no
+        # end_user_id and skip this entirely; new users get an empty list
+        # from get_user_memories on the first call. Failures inside mem0
+        # are swallowed there and return [], so this never blocks the turn.
+        user_memories: list[str] = []
+        if conversation.end_user_id is not None:
+            user_memories = await get_user_memories(
+                conversation.end_user_id,
+                conversation.agent_id,
+                limit=20,
+            )
+
         system_prompt = self.prompt_builder.build_system_prompt(
             agent=agent,
             current_state=current_state,
             guardrails=guardrails,
             kb_context=kb_context,
+            user_memories=user_memories,
+            voice_style=(mode == "voice"),
         )
 
         formatted_messages = self.prompt_builder.format_messages(messages_list)
