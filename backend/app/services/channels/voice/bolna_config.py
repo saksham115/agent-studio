@@ -55,13 +55,16 @@ async def build_bolna_agent_config(
                     "pipelines": [["transcriber", "llm", "synthesizer"]],
                 },
                 "tools_config": {
+                    # Bolna's PlivoOutputHandler.form_media_message defaults to
+                    # audio/x-mulaw unless audio_format == "wav"; we want mulaw,
+                    # so leave format == "pcm" (anything ≠ "wav" picks mulaw).
                     "input": {
                         "format": "pcm",
-                        "provider": "exotel",
+                        "provider": "plivo",
                     },
                     "output": {
                         "format": "pcm",
-                        "provider": "exotel",
+                        "provider": "plivo",
                     },
                     "transcriber": {
                         "provider": "sarvam",
@@ -70,12 +73,10 @@ async def build_bolna_agent_config(
                         "stream": True,
                         "encoding": "linear16",
                         "endpointing": 500,
-                        # Input 8 kHz → resample to 16 kHz before Sarvam. The
-                        # resample logic only fires when telephony_provider ∈
-                        # {plivo, twilio}; "exotel" falls to the else branch
-                        # and skips resampling. We monkey-patch
-                        # _configure_audio_params in bolna/server.py to add
-                        # exotel handling there.
+                        # Bolna's plivo branch in SarvamTranscriber._configure_audio_params
+                        # auto-configures input_sampling_rate=8000 (Plivo µ-law
+                        # 8kHz) and sampling_rate=16000, with audioop.ratecv
+                        # upsampling before streaming to Sarvam. No patch needed.
                     },
                     "llm_agent": {
                         "agent_type": "simple_llm_agent",
