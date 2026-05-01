@@ -1,15 +1,17 @@
 import uuid
+from datetime import datetime, timezone
 from math import ceil
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from app.api.deps import get_current_user, get_db
 from app.models.agent import Agent
+from app.models.audit import StateTransitionLog
 from app.models.channel import Channel
-from app.models.conversation import Conversation, Message
+from app.models.conversation import Conversation, ConversationStatus, Message
 from app.models.state import State
 from app.schemas.auth import CurrentUser
 from app.schemas.conversation import (
@@ -17,6 +19,7 @@ from app.schemas.conversation import (
     ConversationListResponse,
     ConversationSummary,
     MessageResponse,
+    StateTimelineEntry,
 )
 
 router = APIRouter()
@@ -218,6 +221,53 @@ async def get_conversation(
     conv = row[0]
     agent_name = row[1]
 
+    # Load the state-transition timeline ordered chronologically.
+    # Aliases let us join `states` twice — once for `to_state` (always
+    # present) and once for `from_state` (NULL on the seed/initial row).
+    to_state_alias = aliased(State)
+    from_state_alias = aliased(State)
+    timeline_stmt = (
+        select(
+            StateTransitionLog.id,
+            StateTransitionLog.from_state_id,
+            StateTransitionLog.to_state_id,
+            StateTransitionLog.reason,
+            StateTransitionLog.created_at,
+            to_state_alias.name.label("to_name"),
+            from_state_alias.name.label("from_name"),
+        )
+        .join(to_state_alias, to_state_alias.id == StateTransitionLog.to_state_id)
+        .outerjoin(
+            from_state_alias,
+            from_state_alias.id == StateTransitionLog.from_state_id,
+        )
+        .where(StateTransitionLog.conversation_id == conversation_id)
+        .order_by(StateTransitionLog.created_at.asc())
+    )
+    timeline_result = await db.execute(timeline_stmt)
+    timeline_rows = timeline_result.all()
+
+    state_timeline: list[StateTimelineEntry] = []
+    is_active = conv.status == ConversationStatus.ACTIVE
+    end_time = conv.ended_at or datetime.now(timezone.utc)
+    for idx, row in enumerate(timeline_rows):
+        next_ts = (
+            timeline_rows[idx + 1].created_at
+            if idx + 1 < len(timeline_rows)
+            else end_time
+        )
+        is_last = idx == len(timeline_rows) - 1
+        state_timeline.append(
+            StateTimelineEntry(
+                state=row.to_name,
+                state_id=row.to_state_id,
+                timestamp=row.created_at,
+                duration=_format_duration(row.created_at, next_ts, is_last and is_active),
+                reason=row.reason,
+                from_state=row.from_name,
+            )
+        )
+
     detail = ConversationDetailResponse(
         id=conv.id,
         agent_id=conv.agent_id,
@@ -235,6 +285,25 @@ async def get_conversation(
         started_at=conv.started_at,
         ended_at=conv.ended_at,
         messages=[MessageResponse.model_validate(m) for m in conv.messages],
+        stateTimeline=state_timeline,
     )
 
     return detail
+
+
+def _format_duration(start: datetime, end: datetime, is_active_last: bool) -> str:
+    """Format a state's dwell duration as ``Xm Ys`` or ``ongoing``.
+
+    For the LAST timeline entry on an ACTIVE conversation, return ``"ongoing"``.
+    Otherwise compute the elapsed seconds and format compactly.
+    """
+    if is_active_last:
+        return "ongoing"
+    seconds = max(int((end - start).total_seconds()), 0)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"

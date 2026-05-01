@@ -50,8 +50,23 @@ class ConversationListResponse(BaseModel):
     total_pages: int
 
 
+class StateTimelineEntry(BaseModel):
+    """Single entry in the conversation's state-transition timeline.
+
+    Field names match what the existing conversation viewer reads at
+    `src/app/(dashboard)/conversations/[id]/page.tsx:383-385` — `state`,
+    `timestamp`, `duration` — so the frontend lights up without changes.
+    """
+    state: str
+    state_id: uuid.UUID
+    timestamp: datetime
+    duration: str
+    reason: str | None = None
+    from_state: str | None = None
+
+
 class ConversationDetailResponse(BaseModel):
-    """Full conversation with messages."""
+    """Full conversation with messages and state timeline."""
     id: uuid.UUID
     agent_id: uuid.UUID
     agent_name: str | None = None
@@ -68,6 +83,7 @@ class ConversationDetailResponse(BaseModel):
     started_at: datetime
     ended_at: datetime | None = None
     messages: list[MessageResponse]
+    stateTimeline: list[StateTimelineEntry] = []
 
     model_config = {"from_attributes": True}
 
