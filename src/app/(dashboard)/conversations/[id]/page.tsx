@@ -275,7 +275,19 @@ export default function ConversationDetailPage() {
                   ? new Date(msg.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
                   : msg.timestamp ?? "";
 
-                if (role === "system" || role === "tool") {
+                // The orchestrator stores tool calls as
+                //   role=ASSISTANT, content="[Tool call: <name>]"
+                // so the LLM can see them in conversation history. Render
+                // them inline as muted-italic system-style lines, not as
+                // agent bubbles, so transition turns don't clutter the
+                // chat thread with literal "[Tool call: __transition_to_state]"
+                // strings.
+                const isToolCallPlaceholder =
+                  role === "assistant" &&
+                  typeof msg.content === "string" &&
+                  msg.content.startsWith("[Tool call:");
+
+                if (role === "system" || role === "tool" || isToolCallPlaceholder) {
                   return (
                     <div key={msg.id ?? idx} className="flex justify-center">
                       <div className="inline-flex items-center gap-2 rounded-full bg-muted/50 px-3 py-1.5 text-xs text-muted-foreground italic">
