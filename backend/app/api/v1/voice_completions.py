@@ -26,6 +26,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.database import async_session_factory
+from app.observability import tracer
 from app.services.orchestrator import ConversationOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -84,17 +85,23 @@ async def voice_chat_completions(
     )
 
     # Call orchestrator
-    try:
-        async with async_session_factory() as db:
-            orchestrator = ConversationOrchestrator(db)
-            response = await orchestrator.process_message(
-                conversation_id=conversation_id,
-                user_message=VOICE_HINT + user_text,
-            )
-            await db.commit()
-    except Exception:
-        logger.exception("Orchestrator failed for conversation %s", conversation_id)
-        return _respond("Sorry, something went wrong. Please try again.", request.stream)
+    with tracer.start_as_current_span("voice.completions") as span:
+        span.set_attribute("voice.conversation_id", str(conversation_id))
+        span.set_attribute("voice.stream", request.stream)
+        span.set_attribute("voice.user_text_length", len(user_text))
+        try:
+            async with async_session_factory() as db:
+                orchestrator = ConversationOrchestrator(db)
+                response = await orchestrator.process_message(
+                    conversation_id=conversation_id,
+                    user_message=VOICE_HINT + user_text,
+                )
+                await db.commit()
+        except Exception:
+            logger.exception("Orchestrator failed for conversation %s", conversation_id)
+            span.set_attribute("voice.error", True)
+            return _respond("Sorry, something went wrong. Please try again.", request.stream)
+        span.set_attribute("voice.response_length", len(response.message))
 
     logger.info(
         "Voice completions response: conversation_id=%s, text=%r",
