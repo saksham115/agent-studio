@@ -36,8 +36,13 @@ logger = configure_logger(__name__)
 # -----------------------------------------------------------------------------
 from smart_turn import install_patches, drop_state_for_ws, warm_up
 from observability import init_tracing, tracer
+from patches import patch_bolna_for_tracing
 
 install_patches()
+# Wrap Sarvam STT/TTS classes with manual spans so Honeycomb shows per-turn
+# bolna.stt.turn and bolna.tts.first_chunk durations next to the backend's
+# voice.completions LLM bar — needed to answer "STT/LLM/TTS taking how long".
+patch_bolna_for_tracing()
 
 redis_pool = redis.ConnectionPool.from_url(
     os.getenv("REDIS_URL", "redis://localhost:6379/1"),
