@@ -483,64 +483,26 @@ class ConversationOrchestrator:
             total_output_tokens += llm_response.output_tokens or 0
 
         # Extract text content from the final LLM response
-        response_text = llm_response.content or agent.fallback_message or "I'm sorry, I wasn't able to generate a response."
-
-        # ---- 9. Output guardrails ----------------------------------------
-        output_guardrails = [g for g in guardrails if g.is_active]
-        if output_guardrails:
-            try:
-                output_check = await self.guardrail_service.check_output(
-                    response_text, output_guardrails,
-                )
-                if not output_check.passed:
-                    response_text = (
-                        output_check.modified_text
-                        or agent.fallback_message
-                        or "I'm sorry, I can't provide that response."
-                    )
-                elif output_check.modified_text:
-                    response_text = output_check.modified_text
-
-                if output_check.triggered_rules:
-                    for rule in output_check.triggered_rules:
-                        rule_info = self._rule_to_dict(rule)
-                        guardrails_triggered.append(rule_info)
-                        await self._log_guardrail_trigger(
-                            conversation_id=conversation_id,
-                            guardrails=guardrails,
-                            rule_info=rule_info,
-                            original=llm_response.content,
-                            modified=output_check.modified_text,
-                        )
-            except Exception:
-                logger.warning(
-                    "Output guardrail check failed — returning raw response",
-                    exc_info=True,
-                )
-
-        # ---- 10. Store assistant message ---------------------------------
-        assistant_msg = Message(
-            conversation_id=conversation_id,
-            role=MessageRole.ASSISTANT,
-            content=response_text,
-            token_count=(total_input_tokens + total_output_tokens) or None,
-            latency_ms=llm_latency_ms,
-            model_used=getattr(llm_response, "model", None),
-            tool_calls=(
-                llm_response.tool_calls
-                if llm_response.tool_calls
-                else None
-            ),
+        response_text = (
+            llm_response.content
+            or agent.fallback_message
+            or "I'm sorry, I wasn't able to generate a response."
         )
-        self.db.add(assistant_msg)
-        await self.db.flush()
+        # `last_llm_response` and `last_latency_ms` track whichever LLM call
+        # produced response_text so the stored assistant_msg metadata
+        # (model_used, latency_ms, tool_calls) reflects the source of the
+        # user-visible reply. Force-pick may overwrite these below.
+        last_llm_response = llm_response
+        last_latency_ms = llm_latency_ms
 
-        # ---- 11. maxTurns force-pick safety net --------------------------
+        # ---- 9. maxTurns force-pick safety net ---------------------------
         # If the LLM didn't transition this turn AND we've reached the per-
         # state turn limit AND there are still outgoing transitions, force
         # one. The LLM-judged tool path is the primary mechanism; this is
-        # the deterministic backstop. Fires before storing the assistant
-        # message so the user-facing reply reflects the new state.
+        # the deterministic backstop. Runs BEFORE output guardrails and
+        # assistant_msg storage so the single stored message reflects the
+        # final, post-transition reply (not a stale draft) and the re-call
+        # doesn't see its own pre-force-pick draft as conversation history.
         if (
             current_state is not None
             and not transitioned_this_turn
@@ -563,11 +525,9 @@ class ConversationOrchestrator:
                     conversation.ended_at = datetime.now(timezone.utc)
                 # Re-call the LLM ONCE under the forced new state's prompt
                 # so the user-facing reply reflects the new state, not the
-                # stuck old one. Pass tools=None — we just FORCED a
-                # transition; allowing the LLM to transition again or call
-                # Action tools here would either thrash (this is a single-
-                # shot re-call without a tool loop) or compete with the
-                # deterministic decision we just made.
+                # stuck old one. tools=None: this is a single-shot re-call
+                # (no tool loop), and the agent has just been deterministically
+                # transitioned — let it produce a clean reply.
                 forced_system_prompt = self.prompt_builder.build_system_prompt(
                     agent=agent,
                     current_state=current_state,
@@ -576,16 +536,21 @@ class ConversationOrchestrator:
                     state_turn_count=conversation.state_turn_count or 0,
                     max_turns=_max_turns(current_state),
                 )
+                # NOTE: assistant_msg has NOT been stored yet. The reload
+                # picks up the in-loop tool-call and tool-result rows
+                # (correct context) but not a stale pre-force-pick draft.
                 forced_messages = await self._load_messages(conversation_id)
                 forced_formatted = self.prompt_builder.format_messages(
                     forced_messages
                 )
+                forced_start = time.monotonic()
                 forced_response = await self.llm.chat(
                     system_prompt=forced_system_prompt,
                     messages=forced_formatted,
                     tools=None,
                     max_tokens=4096,
                 )
+                last_latency_ms = int((time.monotonic() - forced_start) * 1000)
                 response_text = (
                     forced_response.content
                     or agent.fallback_message
@@ -593,46 +558,65 @@ class ConversationOrchestrator:
                 )
                 total_input_tokens += forced_response.input_tokens or 0
                 total_output_tokens += forced_response.output_tokens or 0
-                # The output-guardrail block earlier in this function has
-                # already run against the original response_text; rerun it
-                # here against the forced reply.
-                if output_guardrails:
-                    try:
-                        forced_check = await self.guardrail_service.check_output(
-                            response_text, output_guardrails,
+                last_llm_response = forced_response
+
+        # ---- 10. Output guardrails (single pass on final response_text) -
+        output_guardrails = [g for g in guardrails if g.is_active]
+        if output_guardrails:
+            try:
+                output_check = await self.guardrail_service.check_output(
+                    response_text, output_guardrails,
+                )
+                pre_guardrail_text = response_text
+                if not output_check.passed:
+                    response_text = (
+                        output_check.modified_text
+                        or agent.fallback_message
+                        or "I'm sorry, I can't provide that response."
+                    )
+                elif output_check.modified_text:
+                    response_text = output_check.modified_text
+
+                if output_check.triggered_rules:
+                    for rule in output_check.triggered_rules:
+                        rule_info = self._rule_to_dict(rule)
+                        guardrails_triggered.append(rule_info)
+                        await self._log_guardrail_trigger(
+                            conversation_id=conversation_id,
+                            guardrails=guardrails,
+                            rule_info=rule_info,
+                            original=pre_guardrail_text,
+                            modified=output_check.modified_text,
                         )
-                        if not forced_check.passed:
-                            response_text = (
-                                forced_check.modified_text
-                                or agent.fallback_message
-                                or "I'm sorry, I can't provide that response."
-                            )
-                        elif forced_check.modified_text:
-                            response_text = forced_check.modified_text
-                        if forced_check.triggered_rules:
-                            for rule in forced_check.triggered_rules:
-                                rule_info = self._rule_to_dict(rule)
-                                guardrails_triggered.append(rule_info)
-                                await self._log_guardrail_trigger(
-                                    conversation_id=conversation_id,
-                                    guardrails=guardrails,
-                                    rule_info=rule_info,
-                                    original=forced_response.content,
-                                    modified=forced_check.modified_text,
-                                )
-                    except Exception:
-                        logger.warning(
-                            "Output guardrail re-check failed after force-pick "
-                            "— returning forced response as-is",
-                            exc_info=True,
-                        )
+            except Exception:
+                logger.warning(
+                    "Output guardrail check failed — returning raw response",
+                    exc_info=True,
+                )
+
+        # ---- 11. Store assistant message (single write, post-force-pick) -
+        assistant_msg = Message(
+            conversation_id=conversation_id,
+            role=MessageRole.ASSISTANT,
+            content=response_text,
+            token_count=(total_input_tokens + total_output_tokens) or None,
+            latency_ms=last_latency_ms,
+            model_used=getattr(last_llm_response, "model", None),
+            tool_calls=(
+                last_llm_response.tool_calls
+                if getattr(last_llm_response, "tool_calls", None)
+                else None
+            ),
+        )
+        self.db.add(assistant_msg)
+        await self.db.flush()
 
         # ---- 12. Update conversation metadata ----------------------------
         conversation.message_count = (conversation.message_count or 0) + 2  # user + assistant
         conversation.context = {
             **(conversation.context or {}),
             "last_message_at": datetime.now(timezone.utc).isoformat(),
-            "last_model_used": getattr(llm_response, "model", None),
+            "last_model_used": getattr(last_llm_response, "model", None),
         }
         # Clear any pending action after successful processing
         if conversation.context and "pending_action" in conversation.context:

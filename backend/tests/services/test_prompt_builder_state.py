@@ -187,6 +187,34 @@ def test_terminal_state_replaces_available_next_steps():
     assert TRANSITION_TOOL_NAME not in prompt
 
 
+def test_non_terminal_state_with_no_outgoing_renders_wrap_up_hint():
+    """Regression: a non-terminal state with zero outgoing transitions
+    used to emit a stray blank line and no guidance. Now it renders an
+    explicit 'no next steps configured' line so the LLM has an exit hint."""
+    pb = PromptBuilder()
+    state = _state(
+        name="Stuck",
+        description="Some description",
+        is_terminal=False,
+        outgoing=[],
+    )
+    agent = SimpleNamespace(
+        system_prompt=None, persona=None, languages=[],
+        description=None, fallback_message=None, escalation_message=None,
+    )
+    prompt = pb.build_system_prompt(
+        agent=agent, current_state=state, guardrails=[], kb_context="",
+    )
+    assert "## Available next steps" in prompt
+    assert "No outgoing transitions" in prompt
+    # The transition tool should not be referenced when there are no
+    # outgoing targets — the orchestrator's build_tools omits it too.
+    assert TRANSITION_TOOL_NAME not in prompt
+    # Sanity: no triple-blank-line artefact from the previous unconditional
+    # `lines.append("")` regression.
+    assert "\n\n\n" not in prompt
+
+
 def test_multi_edges_to_same_target_collapse_with_or_join():
     """Multi-edges A→B with different conditions render as ONE bullet."""
     pb = PromptBuilder()

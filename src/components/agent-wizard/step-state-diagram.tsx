@@ -108,7 +108,9 @@ function CustomNode({ data, selected }: NodeProps<StateNode>) {
   );
 }
 
-const INITIAL_NODES: StateNode[] = [
+// Exported so wizard-shell.tsx can use them as the new-agent starting
+// diagram. Editing flows pass the backend-loaded diagram instead.
+export const INITIAL_NODES: StateNode[] = [
   {
     id: "greeting",
     type: "stateNode",
@@ -228,7 +230,7 @@ const INITIAL_NODES: StateNode[] = [
   },
 ];
 
-const INITIAL_EDGES: Edge[] = [
+export const INITIAL_EDGES: Edge[] = [
   {
     id: "e-greeting-need",
     source: "greeting",
@@ -352,11 +354,13 @@ interface StepStateDiagramProps {
 }
 
 export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
-  const initialNodes = data.nodes.length > 0 ? data.nodes : INITIAL_NODES;
-  const initialEdges = data.edges.length > 0 ? data.edges : INITIAL_EDGES;
-
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  // Trust the `data` prop directly. Wizard-shell owns the seeding
+  // decision — new agents get the seeded INITIAL_NODES/INITIAL_EDGES
+  // via `INITIAL_FORM_DATA`, edits get the backend-loaded diagram.
+  // Falling back to seeded data here used to silently resurrect a
+  // deliberately-cleared diagram when editing an empty-saved agent.
+  const [nodes, setNodes, onNodesChange] = useNodesState(data.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(data.edges);
   const [selectedNode, setSelectedNode] = useState<StateNode | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
 

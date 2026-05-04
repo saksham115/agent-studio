@@ -368,45 +368,56 @@ class PromptBuilder:
                     f"Turn {state_turn_count} of {max_turns} in this state."
                 )
 
-        # Available next steps (or terminal-state notice)
-        lines.append("")
+        # Available next steps (or terminal-state notice / dead-end notice).
+        # The leading blank line lives inside each branch so we don't emit
+        # a stray separator when no section is rendered.
         if state.is_terminal:
-            lines.append("## Available next steps")
-            lines.append(
+            lines += [
+                "",
+                "## Available next steps",
                 "This is a terminal state. Wrap up the conversation; do not "
-                "transition."
-            )
+                "transition.",
+            ]
         else:
             transitions: list[Transition] = state.outgoing_transitions or []
-            if transitions:
-                # Group by target name so multi-edges to the same target
-                # collapse into one bullet whose conditions are OR-joined.
-                by_target: dict[str, list[str]] = {}
-                for t in transitions:
-                    if t.to_state is None:
-                        continue
-                    cond = (t.condition or t.description or "").strip()
-                    by_target.setdefault(t.to_state.name, []).append(cond)
-                if by_target:
-                    lines.append("## Available next steps")
-                    for target, conds in by_target.items():
-                        nonempty = [c for c in conds if c]
-                        if nonempty:
-                            lines.append(
-                                f"- **{target}** — {' OR '.join(nonempty)}"
-                            )
-                        else:
-                            lines.append(f"- **{target}**")
-                    lines.append("")
-                    lines.append(
-                        f"To advance the conversation, call the "
-                        f"`{TRANSITION_TOOL_NAME}` tool with the target state "
-                        f"name and a brief reason. ONLY transition when the "
-                        f"goal is genuinely met or a specific trigger "
-                        f"appears. Stay in this state otherwise. Your reply "
-                        f"to the user should come AFTER any transition "
-                        f"decision."
-                    )
+            # Group by target name so multi-edges to the same target collapse
+            # into one bullet whose conditions are OR-joined.
+            by_target: dict[str, list[str]] = {}
+            for t in transitions:
+                if t.to_state is None:
+                    continue
+                cond = (t.condition or t.description or "").strip()
+                by_target.setdefault(t.to_state.name, []).append(cond)
+
+            if by_target:
+                lines += ["", "## Available next steps"]
+                for target, conds in by_target.items():
+                    nonempty = [c for c in conds if c]
+                    if nonempty:
+                        lines.append(
+                            f"- **{target}** — {' OR '.join(nonempty)}"
+                        )
+                    else:
+                        lines.append(f"- **{target}**")
+                lines += [
+                    "",
+                    f"To advance the conversation, call the "
+                    f"`{TRANSITION_TOOL_NAME}` tool with the target state "
+                    f"name and a brief reason. ONLY transition when the "
+                    f"goal is genuinely met or a specific trigger appears. "
+                    f"Stay in this state otherwise. Your reply to the user "
+                    f"should come AFTER any transition decision.",
+                ]
+            else:
+                # Non-terminal but no outgoing transitions configured. The
+                # transition tool isn't registered (build_tools returns None
+                # for this case), so tell the LLM what to do explicitly.
+                lines += [
+                    "",
+                    "## Available next steps",
+                    "No outgoing transitions are configured from this state. "
+                    "Wrap up the current exchange gracefully.",
+                ]
 
         return "\n".join(lines).rstrip()
 
