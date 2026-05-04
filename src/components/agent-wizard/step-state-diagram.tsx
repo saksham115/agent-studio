@@ -34,6 +34,7 @@ import {
 interface StateNodeData {
   label: string;
   description: string;
+  instructions: string;
   maxTurns: number;
   nodeType: "start" | "normal" | "terminal" | "branch";
   [key: string]: unknown;
@@ -107,7 +108,9 @@ function CustomNode({ data, selected }: NodeProps<StateNode>) {
   );
 }
 
-const INITIAL_NODES: StateNode[] = [
+// Exported so wizard-shell.tsx can use them as the new-agent starting
+// diagram. Editing flows pass the backend-loaded diagram instead.
+export const INITIAL_NODES: StateNode[] = [
   {
     id: "greeting",
     type: "stateNode",
@@ -115,6 +118,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Greeting",
       description: "Welcome the customer and introduce the agent",
+      instructions:
+        "Welcome the customer warmly and introduce yourself by name. Briefly mention you're calling about insurance options for their family. Ask if they have a moment to chat. Keep the greeting under two sentences. Do NOT pitch products or ask qualifying questions yet — just get permission to continue.",
       maxTurns: 2,
       nodeType: "start",
     },
@@ -126,6 +131,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Need Discovery",
       description: "Understand customer requirements, family details, and budget",
+      instructions:
+        "Gather the information needed to recommend the right insurance product. Specifically, ask about: (1) family size and age range of family members, (2) existing health coverage if any, (3) approximate annual budget for insurance, (4) any pre-existing medical conditions in the family. Ask one question at a time. Use friendly, conversational language. Don't move forward until you have at least family size and budget.",
       maxTurns: 8,
       nodeType: "normal",
     },
@@ -137,6 +144,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Product Pitch",
       description: "Present suitable insurance products from the knowledge base",
+      instructions:
+        "Recommend ONE suitable insurance product from the knowledge base based on the discovery information. Highlight: (1) what's covered, (2) the premium, (3) key benefits relevant to the customer's family situation. Be specific — reference the exact product name and benefits. Don't list multiple products; pick one strong fit. Wait for the customer's reaction.",
       maxTurns: 6,
       nodeType: "normal",
     },
@@ -148,6 +157,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Objection Handling",
       description: "Address customer concerns about pricing, coverage, or terms",
+      instructions:
+        "Address the customer's specific concerns about pricing, coverage, or policy terms. Ask which part of the pitch they're unsure about. Provide concrete reassurance with facts from the knowledge base — claim ratios, coverage details, network hospitals. If pricing is the concern, explain value or offer alternative variants. Don't move to the quote until the customer signals they're convinced or explicitly wants to see numbers.",
       maxTurns: 10,
       nodeType: "normal",
     },
@@ -159,6 +170,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Quote Generation",
       description: "Generate premium quote and share payment link",
+      instructions:
+        "Generate a premium quote based on the discussed product and family details. Confirm the price, coverage period, and what's included. Ask if the customer would like to proceed with this quote. Provide a payment link or next-step instructions when they accept. Be clear and brief.",
       maxTurns: 4,
       nodeType: "normal",
     },
@@ -170,6 +183,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Document Collection",
       description: "Collect KYC documents: Aadhaar, PAN, photos, medical reports",
+      instructions:
+        "Collect the KYC documents required to issue the policy: Aadhaar number, PAN number, recent photographs of family members, and any required medical reports. Walk through each document one at a time. Confirm receipt before moving on. If any document is missing or invalid, explain what's needed.",
       maxTurns: 6,
       nodeType: "normal",
     },
@@ -181,6 +196,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Closure",
       description: "Confirm policy issuance and provide next steps",
+      instructions:
+        "Confirm the policy has been issued. Provide the policy number, what to expect next (welcome kit, ID cards, network hospital list), and customer support contact details. Thank the customer and end the call warmly.",
       maxTurns: 3,
       nodeType: "terminal",
     },
@@ -192,6 +209,8 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Follow-up",
       description: "Schedule callback or send information for later decision",
+      instructions:
+        "Schedule a callback or send information for a later decision. Ask when would be a convenient time to follow up — within 24 hours, three days, or a week. Confirm the time and end the call politely. Don't try to close in this state.",
       maxTurns: 4,
       nodeType: "branch",
     },
@@ -203,18 +222,20 @@ const INITIAL_NODES: StateNode[] = [
     data: {
       label: "Escalation",
       description: "Transfer to human agent when requested or frustration detected",
+      instructions:
+        "Transfer the customer to a human agent. Acknowledge their request or concern, let them know you're connecting them now, and that an advisor will reach out shortly. Don't try to continue the sales conversation.",
       maxTurns: 2,
       nodeType: "terminal",
     },
   },
 ];
 
-const INITIAL_EDGES: Edge[] = [
+export const INITIAL_EDGES: Edge[] = [
   {
     id: "e-greeting-need",
     source: "greeting",
     target: "need-discovery",
-    label: "Customer responds",
+    label: "Customer responds and gives permission to continue",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2 },
@@ -225,7 +246,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-need-pitch",
     source: "need-discovery",
     target: "product-pitch",
-    label: "Needs identified",
+    label: "Family size, budget, and key requirements have been collected",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2 },
@@ -236,7 +257,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-pitch-objection",
     source: "product-pitch",
     target: "objection-handling",
-    label: "Customer has concerns",
+    label: "Customer raises a concern about price, coverage, or terms",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2 },
@@ -247,7 +268,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-pitch-quote",
     source: "product-pitch",
     target: "quote-generation",
-    label: "Ready for quote",
+    label: "Customer is convinced and wants to see the quote",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2, strokeDasharray: "5 5" },
@@ -258,7 +279,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-objection-quote",
     source: "objection-handling",
     target: "quote-generation",
-    label: "Objections resolved",
+    label: "Customer's concerns are addressed and they are ready to proceed",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2 },
@@ -269,7 +290,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-objection-followup",
     source: "objection-handling",
     target: "follow-up",
-    label: "Needs time to decide",
+    label: "Customer wants to think it over or schedule a callback",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2 },
@@ -280,7 +301,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-quote-docs",
     source: "quote-generation",
     target: "document-collection",
-    label: "Quote accepted",
+    label: "Customer has agreed to the proposed quote and is ready to proceed",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2 },
@@ -291,7 +312,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-docs-closure",
     source: "document-collection",
     target: "closure",
-    label: "Documents verified",
+    label: "All required KYC documents have been received and verified",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2 },
@@ -302,7 +323,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-any-escalation",
     source: "need-discovery",
     target: "escalation",
-    label: "Escalation request",
+    label: "Customer explicitly requests a human or transfer",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2, strokeDasharray: "5 5" },
@@ -313,7 +334,7 @@ const INITIAL_EDGES: Edge[] = [
     id: "e-pitch-escalation",
     source: "product-pitch",
     target: "escalation",
-    label: "Frustrated",
+    label: "Customer shows frustration or is not making progress",
     type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16 },
     style: { strokeWidth: 2, strokeDasharray: "5 5" },
@@ -333,11 +354,13 @@ interface StepStateDiagramProps {
 }
 
 export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
-  const initialNodes = data.nodes.length > 0 ? data.nodes : INITIAL_NODES;
-  const initialEdges = data.edges.length > 0 ? data.edges : INITIAL_EDGES;
-
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  // Trust the `data` prop directly. Wizard-shell owns the seeding
+  // decision — new agents get the seeded INITIAL_NODES/INITIAL_EDGES
+  // via `INITIAL_FORM_DATA`, edits get the backend-loaded diagram.
+  // Falling back to seeded data here used to silently resurrect a
+  // deliberately-cleared diagram when editing an empty-saved agent.
+  const [nodes, setNodes, onNodesChange] = useNodesState(data.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(data.edges);
   const [selectedNode, setSelectedNode] = useState<StateNode | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
 
@@ -388,6 +411,7 @@ export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
       data: {
         label: "New State",
         description: "Describe this state",
+        instructions: "",
         maxTurns: 5,
         nodeType: "normal",
       },
@@ -559,6 +583,25 @@ export function StepStateDiagram({ data, onChange }: StepStateDiagramProps) {
                   }
                   className="min-h-[80px]"
                 />
+                <p className="text-[11px] text-muted-foreground">
+                  Short label shown on the diagram itself.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs">Instructions</Label>
+                <Textarea
+                  value={selectedNode.data.instructions ?? ""}
+                  onChange={(e) =>
+                    updateSelectedNode({ instructions: e.target.value })
+                  }
+                  className="min-h-[140px]"
+                  placeholder="Specific behavioral directives the agent will follow while in this state. e.g. 'Ask about family size, ages, existing coverage, and budget. Don't move forward until you have at least family size and budget.'"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Detailed directives that drive runtime behaviour. The
+                  agent will read these on every turn while in this state.
+                </p>
               </div>
 
               <div className="space-y-2">

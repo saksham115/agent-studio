@@ -27,11 +27,16 @@ from app.models.action import Action
 from app.models.guardrail import Guardrail
 from app.models.audit import ActionExecution, GuardrailTrigger
 from app.services.llm_client import LLMClient
-from app.services.prompt_builder import PromptBuilder
+from app.services.prompt_builder import (
+    PromptBuilder,
+    TRANSITION_TOOL_NAME,
+    _max_turns,
+)
 from app.services.knowledge_base_service import KnowledgeBaseService
 from app.services.action_executor import ActionExecutor
 from app.services.guardrail_service import GuardrailService
 from app.services.state_machine import StateMachine
+from app.services.transition_picker import force_pick_transition
 from app.observability import tracer
 
 logger = logging.getLogger(__name__)
@@ -105,16 +110,22 @@ class ConversationOrchestrator:
         # Determine initial state (may be None for stateless agents)
         initial_state = await self.state_machine.get_initial_state(agent_id)
 
-        # Create conversation
+        # Create conversation; bootstrap_initial_state below sets the
+        # state-related fields (current_state_id, state_entered_at,
+        # state_turn_count) and writes the seed StateTransitionLog row.
         conversation = Conversation(
             agent_id=agent_id,
             status=ConversationStatus.ACTIVE,
-            current_state_id=initial_state.id if initial_state else None,
             context={},
             message_count=0,
         )
         self.db.add(conversation)
         await self.db.flush()
+
+        if initial_state is not None:
+            await self.state_machine.bootstrap_initial_state(
+                conversation, initial_state,
+            )
 
         # Determine the greeting
         welcome_text = agent.welcome_message or f"Hello! I'm {agent.name}. How can I help you today?"
@@ -270,6 +281,16 @@ class ConversationOrchestrator:
                 conversation.current_state_id
             )
 
+        # Per-state turn tracking. Counter is bumped BEFORE building the
+        # prompt so the rendered "Turn N of M" reflects the turn about to
+        # happen (including this one). Lazy-init state_entered_at for
+        # conversations migrated from before 004_state_turn_tracking.
+        if current_state is not None:
+            conversation.state_turn_count = (conversation.state_turn_count or 0) + 1
+            if conversation.state_entered_at is None:
+                conversation.state_entered_at = datetime.now(timezone.utc)
+        max_turns = _max_turns(current_state)
+
         # Load recent messages from the DB (the relationship may be stale)
         messages_list = await self._load_messages(conversation_id)
 
@@ -278,13 +299,17 @@ class ConversationOrchestrator:
             current_state=current_state,
             guardrails=guardrails,
             kb_context=kb_context,
+            state_turn_count=conversation.state_turn_count or 0,
+            max_turns=max_turns,
         )
 
         formatted_messages = self.prompt_builder.format_messages(messages_list)
 
-        # Load active actions and build tools
+        # Load active actions and build tools (includes the
+        # __transition_to_state meta-tool when current_state has outgoing
+        # transitions and isn't terminal).
         actions = await self._load_actions(agent.id)
-        tools = self.prompt_builder.build_tools(actions) if actions else []
+        tools = self.prompt_builder.build_tools(actions, current_state)
 
         # ---- 7. Call LLM -------------------------------------------------
         start_ts = time.monotonic()
@@ -306,6 +331,12 @@ class ConversationOrchestrator:
         total_output_tokens += llm_response.output_tokens or 0
 
         # ---- 8. Tool-use loop --------------------------------------------
+        # transitioned_this_turn tracks whether ANY successful state transition
+        # fired during this turn — set as a boolean flag inside the loop, NOT
+        # derived from a final-state-ID comparison. The LLM could transition
+        # A→B→A within MAX_TOOL_CALL_ITERATIONS leaving final state ID equal
+        # to start state ID; the flag captures the truth either way.
+        transitioned_this_turn = False
         iteration = 0
         while llm_response.tool_calls and iteration < MAX_TOOL_CALL_ITERATIONS:
             iteration += 1
@@ -314,6 +345,38 @@ class ConversationOrchestrator:
                 tool_name = tool_call.get("name") or tool_call.get("function", {}).get("name", "")
                 tool_input = tool_call.get("input") or tool_call.get("arguments", {})
                 tool_use_id = tool_call.get("id", str(uuid.uuid4()))
+
+                # System meta-tool: state transition
+                if tool_name == TRANSITION_TOOL_NAME:
+                    result, new_state = await self._handle_transition_tool(
+                        conversation, current_state, tool_input,
+                    )
+                    # _store_tool_messages json.dumps's `result` — keep it
+                    # serializable-only. The State ORM object travels via
+                    # the tuple so the LLM-visible tool_result content is
+                    # clean.
+                    await self._store_tool_messages(
+                        conversation_id, TRANSITION_TOOL_NAME,
+                        tool_input, result, tool_use_id,
+                    )
+                    if result.get("ok") and new_state is not None:
+                        transitioned_this_turn = True
+                        current_state = new_state
+                        max_turns = _max_turns(current_state)
+                        # Rebuild system prompt + tools so the next loop
+                        # iteration sees the new state's directives.
+                        system_prompt = self.prompt_builder.build_system_prompt(
+                            agent=agent,
+                            current_state=current_state,
+                            guardrails=guardrails,
+                            kb_context=kb_context,
+                            state_turn_count=conversation.state_turn_count or 0,
+                            max_turns=max_turns,
+                        )
+                        tools = self.prompt_builder.build_tools(
+                            actions, current_state,
+                        )
+                    continue
 
                 # Find matching action
                 action = self._find_action(actions, tool_name)
@@ -420,15 +483,91 @@ class ConversationOrchestrator:
             total_output_tokens += llm_response.output_tokens or 0
 
         # Extract text content from the final LLM response
-        response_text = llm_response.content or agent.fallback_message or "I'm sorry, I wasn't able to generate a response."
+        response_text = (
+            llm_response.content
+            or agent.fallback_message
+            or "I'm sorry, I wasn't able to generate a response."
+        )
+        # `last_llm_response` and `last_latency_ms` track whichever LLM call
+        # produced response_text so the stored assistant_msg metadata
+        # (model_used, latency_ms, tool_calls) reflects the source of the
+        # user-visible reply. Force-pick may overwrite these below.
+        last_llm_response = llm_response
+        last_latency_ms = llm_latency_ms
 
-        # ---- 9. Output guardrails ----------------------------------------
+        # ---- 9. maxTurns force-pick safety net ---------------------------
+        # If the LLM didn't transition this turn AND we've reached the per-
+        # state turn limit AND there are still outgoing transitions, force
+        # one. The LLM-judged tool path is the primary mechanism; this is
+        # the deterministic backstop. Runs BEFORE output guardrails and
+        # assistant_msg storage so the single stored message reflects the
+        # final, post-transition reply (not a stale draft) and the re-call
+        # doesn't see its own pre-force-pick draft as conversation history.
+        if (
+            current_state is not None
+            and not transitioned_this_turn
+            and not current_state.is_terminal
+            and current_state.outgoing_transitions
+            and max_turns is not None
+            and (conversation.state_turn_count or 0) >= max_turns
+        ):
+            forced_state = await force_pick_transition(
+                state_machine=self.state_machine,
+                conversation=conversation,
+                current_state=current_state,
+                recent_messages=messages_list,
+                llm=self.llm,
+            )
+            if forced_state is not None:
+                current_state = forced_state
+                if forced_state.is_terminal:
+                    conversation.status = ConversationStatus.COMPLETED
+                    conversation.ended_at = datetime.now(timezone.utc)
+                # Re-call the LLM ONCE under the forced new state's prompt
+                # so the user-facing reply reflects the new state, not the
+                # stuck old one. tools=None: this is a single-shot re-call
+                # (no tool loop), and the agent has just been deterministically
+                # transitioned — let it produce a clean reply.
+                forced_system_prompt = self.prompt_builder.build_system_prompt(
+                    agent=agent,
+                    current_state=current_state,
+                    guardrails=guardrails,
+                    kb_context=kb_context,
+                    state_turn_count=conversation.state_turn_count or 0,
+                    max_turns=_max_turns(current_state),
+                )
+                # NOTE: assistant_msg has NOT been stored yet. The reload
+                # picks up the in-loop tool-call and tool-result rows
+                # (correct context) but not a stale pre-force-pick draft.
+                forced_messages = await self._load_messages(conversation_id)
+                forced_formatted = self.prompt_builder.format_messages(
+                    forced_messages
+                )
+                forced_start = time.monotonic()
+                forced_response = await self.llm.chat(
+                    system_prompt=forced_system_prompt,
+                    messages=forced_formatted,
+                    tools=None,
+                    max_tokens=4096,
+                )
+                last_latency_ms = int((time.monotonic() - forced_start) * 1000)
+                response_text = (
+                    forced_response.content
+                    or agent.fallback_message
+                    or "I'm sorry, I wasn't able to generate a response."
+                )
+                total_input_tokens += forced_response.input_tokens or 0
+                total_output_tokens += forced_response.output_tokens or 0
+                last_llm_response = forced_response
+
+        # ---- 10. Output guardrails (single pass on final response_text) -
         output_guardrails = [g for g in guardrails if g.is_active]
         if output_guardrails:
             try:
                 output_check = await self.guardrail_service.check_output(
                     response_text, output_guardrails,
                 )
+                pre_guardrail_text = response_text
                 if not output_check.passed:
                     response_text = (
                         output_check.modified_text
@@ -446,7 +585,7 @@ class ConversationOrchestrator:
                             conversation_id=conversation_id,
                             guardrails=guardrails,
                             rule_info=rule_info,
-                            original=llm_response.content,
+                            original=pre_guardrail_text,
                             modified=output_check.modified_text,
                         )
             except Exception:
@@ -455,93 +594,29 @@ class ConversationOrchestrator:
                     exc_info=True,
                 )
 
-        # ---- 10. Store assistant message ---------------------------------
+        # ---- 11. Store assistant message (single write, post-force-pick) -
         assistant_msg = Message(
             conversation_id=conversation_id,
             role=MessageRole.ASSISTANT,
             content=response_text,
             token_count=(total_input_tokens + total_output_tokens) or None,
-            latency_ms=llm_latency_ms,
-            model_used=getattr(llm_response, "model", None),
+            latency_ms=last_latency_ms,
+            model_used=getattr(last_llm_response, "model", None),
             tool_calls=(
-                llm_response.tool_calls
-                if llm_response.tool_calls
+                last_llm_response.tool_calls
+                if getattr(last_llm_response, "tool_calls", None)
                 else None
             ),
         )
         self.db.add(assistant_msg)
         await self.db.flush()
 
-        # ---- 11. Evaluate state transitions ------------------------------
-        if current_state and current_state.outgoing_transitions:
-            transitions = sorted(
-                current_state.outgoing_transitions, key=lambda t: t.priority
-            )
-            conversation_summary = self.prompt_builder.build_conversation_summary(
-                messages_list
-            )
-
-            for transition in transitions:
-                # Skip transitions without conditions — they're manual/always
-                if not transition.condition:
-                    continue
-
-                try:
-                    condition_met = await self.llm.evaluate_condition(
-                        conversation_summary, transition.condition
-                    )
-                except Exception:
-                    logger.warning(
-                        "Condition evaluation failed for transition %s",
-                        transition.id,
-                        exc_info=True,
-                    )
-                    continue
-
-                if condition_met:
-                    target_state = transition.to_state
-                    if target_state is None:
-                        target_state = await self.state_machine.get_current_state(
-                            transition.to_state_id
-                        )
-                    if target_state is None:
-                        continue
-
-                    await self.state_machine.transition_to(
-                        conversation=conversation,
-                        new_state=target_state,
-                        transition_id=transition.id,
-                        reason=f"Condition met: {transition.condition}",
-                    )
-
-                    # Store a system message noting the transition
-                    sys_msg = Message(
-                        conversation_id=conversation_id,
-                        role=MessageRole.SYSTEM,
-                        content=(
-                            f"[State transition] "
-                            f"{current_state.name} -> {target_state.name} "
-                            f"(condition: {transition.condition})"
-                        ),
-                    )
-                    self.db.add(sys_msg)
-
-                    current_state = target_state
-
-                    # If the new state is terminal, complete the conversation
-                    if target_state.is_terminal:
-                        conversation.status = ConversationStatus.COMPLETED
-                        conversation.ended_at = datetime.now(timezone.utc)
-
-                    # Only apply the first matching transition
-                    break
-
         # ---- 12. Update conversation metadata ----------------------------
         conversation.message_count = (conversation.message_count or 0) + 2  # user + assistant
         conversation.context = {
             **(conversation.context or {}),
             "last_message_at": datetime.now(timezone.utc).isoformat(),
-            "last_model_used": getattr(llm_response, "model", None),
+            "last_model_used": getattr(last_llm_response, "model", None),
         }
         # Clear any pending action after successful processing
         if conversation.context and "pending_action" in conversation.context:
@@ -653,6 +728,100 @@ class ConversationOrchestrator:
             if action.name.lower() == tool_name.lower():
                 return action
         return None
+
+    async def _handle_transition_tool(
+        self,
+        conversation: Conversation,
+        current_state: State | None,
+        tool_input: dict,
+    ) -> tuple[dict, State | None]:
+        """Validate + commit a ``__transition_to_state`` tool call.
+
+        Returns a tuple ``(result_dict, new_state | None)``. The
+        ``result_dict`` is JSON-serializable (only string fields) and is
+        what gets fed back to the LLM via ``_store_tool_messages``. The
+        ``new_state`` is the actual ORM object handed back to the
+        orchestrator via the tuple — keeping it out of ``result_dict``
+        prevents ``json.dumps(default=str)`` from leaking
+        ``<app.models.state.State object at 0x...>`` strings into the
+        LLM-visible tool_result content.
+
+        Validation:
+        - Reject when ``target_state`` doesn't match an outgoing transition's
+          target name (defence-in-depth backstop in case the model ignores
+          the JSON Schema ``enum`` constraint).
+        - Reject when the target state can't be loaded (data inconsistency).
+
+        Side effects on success:
+        - Calls ``state_machine.transition_to`` (which writes the audit log
+          and resets the per-state counters).
+        - Marks the conversation COMPLETED + sets ``ended_at`` when the new
+          state is terminal.
+        """
+        target_name = (tool_input.get("target_state") or "").strip()
+        reason = tool_input.get("reason") or ""
+
+        if current_state is None or not current_state.outgoing_transitions:
+            return (
+                {
+                    "ok": False,
+                    "error": (
+                        "No outgoing transitions available from the current "
+                        "state."
+                    ),
+                },
+                None,
+            )
+
+        transition = next(
+            (
+                t
+                for t in current_state.outgoing_transitions
+                if t.to_state is not None and t.to_state.name == target_name
+            ),
+            None,
+        )
+        if transition is None:
+            valid = [
+                t.to_state.name
+                for t in current_state.outgoing_transitions
+                if t.to_state is not None
+            ]
+            return (
+                {
+                    "ok": False,
+                    "error": (
+                        f"'{target_name}' is not an outgoing transition "
+                        f"from '{current_state.name}'. Valid targets: "
+                        f"{valid}. Stay in the current state."
+                    ),
+                },
+                None,
+            )
+
+        new_state = await self.state_machine.get_current_state(
+            transition.to_state_id
+        )
+        if new_state is None:
+            return (
+                {"ok": False, "error": "Target state not found in database."},
+                None,
+            )
+
+        await self.state_machine.transition_to(
+            conversation=conversation,
+            new_state=new_state,
+            transition_id=transition.id,
+            reason=reason,
+        )
+        if new_state.is_terminal:
+            conversation.status = ConversationStatus.COMPLETED
+            conversation.ended_at = datetime.now(timezone.utc)
+
+        return (
+            {"ok": True, "new_state_name": new_state.name},
+            new_state,
+        )
 
     async def _store_tool_messages(
         self,

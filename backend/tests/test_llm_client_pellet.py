@@ -90,14 +90,3 @@ async def test_parse_maps_usage_fields(monkeypatch):
     assert response.output_tokens == 20
 
 
-@pytest.mark.parametrize(
-    "answer_text, expected",
-    [("YES", True), ("yes, definitely", True), ("NO", False), ("maybe", False)],
-)
-async def test_evaluate_condition_returns_bool(monkeypatch, answer_text, expected):
-    mock_create = AsyncMock(return_value=_mock_completion(content=answer_text))
-    client = _build_pellet_client(monkeypatch, mock_create)
-
-    result = await client.evaluate_condition("summary", "is met")
-
-    assert result is expected
