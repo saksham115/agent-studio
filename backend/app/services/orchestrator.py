@@ -312,8 +312,17 @@ class ConversationOrchestrator:
         tools = self.prompt_builder.build_tools(actions, current_state)
 
         # ---- 7. Call LLM -------------------------------------------------
+        # llm.iteration distinguishes the initial call (0) from tool-loop
+        # re-calls (1..N) and the force-pick re-call ("force_pick") in
+        # Honeycomb — all three appear under the same orchestrator.llm_call
+        # span name, so the attribute is the only way to tell them apart in
+        # a waterfall. Critical for diagnosing same-turn re-call latency.
         start_ts = time.monotonic()
         with tracer.start_as_current_span("orchestrator.llm_call") as llm_span:
+            llm_span.set_attribute("llm.iteration", 0)
+            llm_span.set_attribute(
+                "llm.state", current_state.name if current_state else "<none>",
+            )
             llm_span.set_attribute("llm.tools_count", len(tools) if tools else 0)
             llm_span.set_attribute("llm.messages_count", len(formatted_messages))
             llm_response = await self.llm.chat(
@@ -421,25 +430,37 @@ class ConversationOrchestrator:
                         },
                     )
 
-                # Execute the action
+                # Execute the action. Wrapped in its own span so individual
+                # tool dispatches are visible in the trace; httpx auto-
+                # instrumentation gives us outbound HTTP timings but doesn't
+                # name which tool was being executed without a parent span.
                 action_start = time.monotonic()
-                try:
-                    tool_result = await self.action_executor.execute(
-                        action=action,
-                        params=tool_input,
-                        conversation_id=conversation_id,
-                    )
-                    action_latency = int((time.monotonic() - action_start) * 1000)
-                    action_success = True
-                    action_error = None
-                except Exception as exc:
-                    action_latency = int((time.monotonic() - action_start) * 1000)
-                    tool_result = {"error": str(exc)}
-                    action_success = False
-                    action_error = str(exc)
-                    logger.error(
-                        "Action %s execution failed: %s", tool_name, exc, exc_info=True
-                    )
+                with tracer.start_as_current_span(
+                    "orchestrator.action_execute",
+                ) as action_span:
+                    action_span.set_attribute("action.name", tool_name)
+                    action_span.set_attribute("action.id", str(action.id))
+                    try:
+                        tool_result = await self.action_executor.execute(
+                            action=action,
+                            params=tool_input,
+                            conversation_id=conversation_id,
+                        )
+                        action_latency = int((time.monotonic() - action_start) * 1000)
+                        action_success = True
+                        action_error = None
+                    except Exception as exc:
+                        action_latency = int((time.monotonic() - action_start) * 1000)
+                        tool_result = {"error": str(exc)}
+                        action_success = False
+                        action_error = str(exc)
+                        action_span.set_attribute("action.error", True)
+                        action_span.record_exception(exc)
+                        logger.error(
+                            "Action %s execution failed: %s", tool_name, exc, exc_info=True
+                        )
+                    action_span.set_attribute("action.success", action_success)
+                    action_span.set_attribute("action.latency_ms", action_latency)
 
                 # Log action execution audit
                 action_execution = ActionExecution(
@@ -467,17 +488,35 @@ class ConversationOrchestrator:
                     conversation_id, tool_name, tool_input, tool_result, tool_use_id,
                 )
 
-            # Re-call LLM with tool results to get next response
+            # Re-call LLM with tool results to get next response. Wrapped
+            # in a span so post-tool re-calls show as discrete bars under
+            # the same orchestrator.llm_call name; llm.iteration carries
+            # the loop counter so they're distinguishable in the trace.
             messages_list = await self._load_messages(conversation_id)
             formatted_messages = self.prompt_builder.format_messages(messages_list)
 
             start_ts = time.monotonic()
-            llm_response = await self.llm.chat(
-                system_prompt=system_prompt,
-                messages=formatted_messages,
-                tools=tools or None,
-                max_tokens=4096,
-            )
+            with tracer.start_as_current_span("orchestrator.llm_call") as llm_span:
+                llm_span.set_attribute("llm.iteration", iteration)
+                llm_span.set_attribute(
+                    "llm.state",
+                    current_state.name if current_state else "<none>",
+                )
+                llm_span.set_attribute("llm.tools_count", len(tools) if tools else 0)
+                llm_span.set_attribute("llm.messages_count", len(formatted_messages))
+                llm_response = await self.llm.chat(
+                    system_prompt=system_prompt,
+                    messages=formatted_messages,
+                    tools=tools or None,
+                    max_tokens=4096,
+                )
+                llm_span.set_attribute("llm.input_tokens", llm_response.input_tokens or 0)
+                llm_span.set_attribute(
+                    "llm.output_tokens", llm_response.output_tokens or 0,
+                )
+                llm_span.set_attribute(
+                    "llm.tool_calls", len(llm_response.tool_calls or []),
+                )
             llm_latency_ms = int((time.monotonic() - start_ts) * 1000)
             total_input_tokens += llm_response.input_tokens or 0
             total_output_tokens += llm_response.output_tokens or 0
@@ -511,88 +550,137 @@ class ConversationOrchestrator:
             and max_turns is not None
             and (conversation.state_turn_count or 0) >= max_turns
         ):
-            forced_state = await force_pick_transition(
-                state_machine=self.state_machine,
-                conversation=conversation,
-                current_state=current_state,
-                recent_messages=messages_list,
-                llm=self.llm,
-            )
-            if forced_state is not None:
-                current_state = forced_state
-                if forced_state.is_terminal:
-                    conversation.status = ConversationStatus.COMPLETED
-                    conversation.ended_at = datetime.now(timezone.utc)
-                # Re-call the LLM ONCE under the forced new state's prompt
-                # so the user-facing reply reflects the new state, not the
-                # stuck old one. tools=None: this is a single-shot re-call
-                # (no tool loop), and the agent has just been deterministically
-                # transitioned — let it produce a clean reply.
-                forced_system_prompt = self.prompt_builder.build_system_prompt(
-                    agent=agent,
+            with tracer.start_as_current_span(
+                "orchestrator.force_pick",
+            ) as force_span:
+                force_span.set_attribute(
+                    "force_pick.from_state", current_state.name,
+                )
+                force_span.set_attribute("force_pick.max_turns", max_turns)
+                force_span.set_attribute(
+                    "force_pick.turn_count",
+                    conversation.state_turn_count or 0,
+                )
+                forced_state = await force_pick_transition(
+                    state_machine=self.state_machine,
+                    conversation=conversation,
                     current_state=current_state,
-                    guardrails=guardrails,
-                    kb_context=kb_context,
-                    state_turn_count=conversation.state_turn_count or 0,
-                    max_turns=_max_turns(current_state),
+                    recent_messages=messages_list,
+                    llm=self.llm,
                 )
-                # NOTE: assistant_msg has NOT been stored yet. The reload
-                # picks up the in-loop tool-call and tool-result rows
-                # (correct context) but not a stale pre-force-pick draft.
-                forced_messages = await self._load_messages(conversation_id)
-                forced_formatted = self.prompt_builder.format_messages(
-                    forced_messages
-                )
-                forced_start = time.monotonic()
-                forced_response = await self.llm.chat(
-                    system_prompt=forced_system_prompt,
-                    messages=forced_formatted,
-                    tools=None,
-                    max_tokens=4096,
-                )
-                last_latency_ms = int((time.monotonic() - forced_start) * 1000)
-                response_text = (
-                    forced_response.content
-                    or agent.fallback_message
-                    or "I'm sorry, I wasn't able to generate a response."
-                )
-                total_input_tokens += forced_response.input_tokens or 0
-                total_output_tokens += forced_response.output_tokens or 0
-                last_llm_response = forced_response
+                if forced_state is not None:
+                    force_span.set_attribute(
+                        "force_pick.to_state", forced_state.name,
+                    )
+                    force_span.set_attribute(
+                        "force_pick.terminal", forced_state.is_terminal,
+                    )
+                    current_state = forced_state
+                    if forced_state.is_terminal:
+                        conversation.status = ConversationStatus.COMPLETED
+                        conversation.ended_at = datetime.now(timezone.utc)
+                    # Re-call the LLM ONCE under the forced new state's prompt
+                    # so the user-facing reply reflects the new state, not the
+                    # stuck old one. tools=None: this is a single-shot re-call
+                    # (no tool loop), and the agent has just been deterministically
+                    # transitioned — let it produce a clean reply.
+                    forced_system_prompt = self.prompt_builder.build_system_prompt(
+                        agent=agent,
+                        current_state=current_state,
+                        guardrails=guardrails,
+                        kb_context=kb_context,
+                        state_turn_count=conversation.state_turn_count or 0,
+                        max_turns=_max_turns(current_state),
+                    )
+                    # NOTE: assistant_msg has NOT been stored yet. The reload
+                    # picks up the in-loop tool-call and tool-result rows
+                    # (correct context) but not a stale pre-force-pick draft.
+                    forced_messages = await self._load_messages(conversation_id)
+                    forced_formatted = self.prompt_builder.format_messages(
+                        forced_messages
+                    )
+                    forced_start = time.monotonic()
+                    with tracer.start_as_current_span(
+                        "orchestrator.llm_call",
+                    ) as forced_llm_span:
+                        forced_llm_span.set_attribute("llm.iteration", "force_pick")
+                        forced_llm_span.set_attribute(
+                            "llm.state", current_state.name,
+                        )
+                        forced_llm_span.set_attribute("llm.tools_count", 0)
+                        forced_llm_span.set_attribute(
+                            "llm.messages_count", len(forced_formatted),
+                        )
+                        forced_response = await self.llm.chat(
+                            system_prompt=forced_system_prompt,
+                            messages=forced_formatted,
+                            tools=None,
+                            max_tokens=4096,
+                        )
+                        forced_llm_span.set_attribute(
+                            "llm.input_tokens", forced_response.input_tokens or 0,
+                        )
+                        forced_llm_span.set_attribute(
+                            "llm.output_tokens", forced_response.output_tokens or 0,
+                        )
+                        forced_llm_span.set_attribute("llm.tool_calls", 0)
+                    last_latency_ms = int((time.monotonic() - forced_start) * 1000)
+                    response_text = (
+                        forced_response.content
+                        or agent.fallback_message
+                        or "I'm sorry, I wasn't able to generate a response."
+                    )
+                    total_input_tokens += forced_response.input_tokens or 0
+                    total_output_tokens += forced_response.output_tokens or 0
+                    last_llm_response = forced_response
 
         # ---- 10. Output guardrails (single pass on final response_text) -
         output_guardrails = [g for g in guardrails if g.is_active]
         if output_guardrails:
-            try:
-                output_check = await self.guardrail_service.check_output(
-                    response_text, output_guardrails,
-                )
-                pre_guardrail_text = response_text
-                if not output_check.passed:
-                    response_text = (
-                        output_check.modified_text
-                        or agent.fallback_message
-                        or "I'm sorry, I can't provide that response."
+            with tracer.start_as_current_span(
+                "orchestrator.output_guardrails",
+            ) as og_span:
+                og_span.set_attribute("guardrails.count", len(output_guardrails))
+                try:
+                    output_check = await self.guardrail_service.check_output(
+                        response_text, output_guardrails,
                     )
-                elif output_check.modified_text:
-                    response_text = output_check.modified_text
-
-                if output_check.triggered_rules:
-                    for rule in output_check.triggered_rules:
-                        rule_info = self._rule_to_dict(rule)
-                        guardrails_triggered.append(rule_info)
-                        await self._log_guardrail_trigger(
-                            conversation_id=conversation_id,
-                            guardrails=guardrails,
-                            rule_info=rule_info,
-                            original=pre_guardrail_text,
-                            modified=output_check.modified_text,
+                    og_span.set_attribute("output.passed", bool(output_check.passed))
+                    og_span.set_attribute(
+                        "output.modified",
+                        bool(output_check.modified_text),
+                    )
+                    og_span.set_attribute(
+                        "output.rules_triggered",
+                        len(output_check.triggered_rules or []),
+                    )
+                    pre_guardrail_text = response_text
+                    if not output_check.passed:
+                        response_text = (
+                            output_check.modified_text
+                            or agent.fallback_message
+                            or "I'm sorry, I can't provide that response."
                         )
-            except Exception:
-                logger.warning(
-                    "Output guardrail check failed — returning raw response",
-                    exc_info=True,
-                )
+                    elif output_check.modified_text:
+                        response_text = output_check.modified_text
+
+                    if output_check.triggered_rules:
+                        for rule in output_check.triggered_rules:
+                            rule_info = self._rule_to_dict(rule)
+                            guardrails_triggered.append(rule_info)
+                            await self._log_guardrail_trigger(
+                                conversation_id=conversation_id,
+                                guardrails=guardrails,
+                                rule_info=rule_info,
+                                original=pre_guardrail_text,
+                                modified=output_check.modified_text,
+                            )
+                except Exception:
+                    og_span.set_attribute("output.error", True)
+                    logger.warning(
+                        "Output guardrail check failed — returning raw response",
+                        exc_info=True,
+                    )
 
         # ---- 11. Store assistant message (single write, post-force-pick) -
         assistant_msg = Message(

@@ -36,6 +36,10 @@ services:
       SMART_TURN_WINDOW_S: ${SMART_TURN_WINDOW_S:-8.0}
       SMART_TURN_MIN_UTT_MS: ${SMART_TURN_MIN_UTT_MS:-600}
       SMART_TURN_FAILOPEN: ${SMART_TURN_FAILOPEN:-true}
+      # Honeycomb tracing — observability.py is no-op when unset, so leaving
+      # this empty just disables tracing instead of failing to start.
+      HONEYCOMB_API_KEY: ${HONEYCOMB_API_KEY:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_BOLNA:-agent-studio-bolna}
       LOG_LEVEL: info
     depends_on:
       redis:

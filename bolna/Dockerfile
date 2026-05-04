@@ -37,6 +37,7 @@ RUN mkdir -p /opt/smart-turn && \
 
 COPY smart_turn.py /app/
 COPY observability.py /app/
+COPY patches.py /app/
 COPY tests /app/tests
 COPY server.py /app/
 

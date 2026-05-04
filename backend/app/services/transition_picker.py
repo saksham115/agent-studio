@@ -19,6 +19,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from app.observability import tracer
+
 if TYPE_CHECKING:  # pragma: no cover
     from app.models.conversation import Conversation, Message
     from app.models.state import State
@@ -60,35 +62,46 @@ async def force_pick_transition(
     )
 
     pick = ""
-    try:
-        response = await llm.chat(
-            system_prompt=(
-                "You pick the best next state for a stalled conversation. "
-                "Respond with ONLY the target state name from the options "
-                "list — no commentary, no quotes, no extra words."
-            ),
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        f"Current state: {current_state.name}\n"
-                        f"Recent conversation:\n{summary}\n\n"
-                        f"Options:\n{options}\n\n"
-                        "Reply with ONLY the target state name."
-                    ),
-                }
-            ],
-            max_tokens=32,
-            temperature=0.0,
-        )
-        pick = (response.content or "").strip()
-    except Exception:
-        logger.warning(
-            "force_pick LLM call failed for conversation %s; falling back "
-            "to first-by-priority candidate",
-            conversation.id,
-            exc_info=True,
-        )
+    with tracer.start_as_current_span("transition_picker.llm_call") as pick_span:
+        pick_span.set_attribute("force_pick.candidates", len(candidates))
+        pick_span.set_attribute("force_pick.from_state", current_state.name)
+        try:
+            response = await llm.chat(
+                system_prompt=(
+                    "You pick the best next state for a stalled conversation. "
+                    "Respond with ONLY the target state name from the options "
+                    "list — no commentary, no quotes, no extra words."
+                ),
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Current state: {current_state.name}\n"
+                            f"Recent conversation:\n{summary}\n\n"
+                            f"Options:\n{options}\n\n"
+                            "Reply with ONLY the target state name."
+                        ),
+                    }
+                ],
+                max_tokens=32,
+                temperature=0.0,
+            )
+            pick = (response.content or "").strip()
+            pick_span.set_attribute("force_pick.llm_pick", pick)
+            pick_span.set_attribute(
+                "llm.input_tokens", response.input_tokens or 0,
+            )
+            pick_span.set_attribute(
+                "llm.output_tokens", response.output_tokens or 0,
+            )
+        except Exception:
+            pick_span.set_attribute("force_pick.error", True)
+            logger.warning(
+                "force_pick LLM call failed for conversation %s; falling back "
+                "to first-by-priority candidate",
+                conversation.id,
+                exc_info=True,
+            )
 
     chosen = next(
         (t for t in candidates if t.to_state.name == pick),
