@@ -21,7 +21,11 @@ import {
 import { StepIdentity } from "./step-identity";
 import { StepKnowledgeBase } from "./step-knowledge-base";
 import { StepActions } from "./step-actions";
-import { StepStateDiagram } from "./step-state-diagram";
+import {
+  StepStateDiagram,
+  INITIAL_NODES as SEED_STATE_NODES,
+  INITIAL_EDGES as SEED_STATE_EDGES,
+} from "./step-state-diagram";
 import { StepChannels } from "./step-channels";
 import { StepGuardrails } from "./step-guardrails";
 import {
@@ -164,9 +168,14 @@ const INITIAL_FORM_DATA: WizardFormData = {
   actions: {
     actions: [],
   },
+  // New agents start with the seeded insurance flow as a useful template.
+  // Editing flows replace this with the backend-loaded diagram in the
+  // load useEffect below — including legitimately-empty diagrams (a user
+  // who deletes everything and saves should re-open to an empty canvas,
+  // not the seeded one).
   stateDiagram: {
-    nodes: [],
-    edges: [],
+    nodes: SEED_STATE_NODES,
+    edges: SEED_STATE_EDGES,
   },
   channels: {
     voice: {
@@ -513,10 +522,11 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           actions: { actions },
           guardrails: { guardrails },
           channels: channelsState,
-          stateDiagram: {
-            nodes: reactNodes.length > 0 ? reactNodes : prev.stateDiagram.nodes,
-            edges: reactEdges.length > 0 ? reactEdges : prev.stateDiagram.edges,
-          },
+          // Editing an existing agent: trust the backend response, even if
+          // it's empty (user may have intentionally cleared the diagram).
+          // Falling back to the seeded INITIAL_NODES here would resurrect
+          // a deleted diagram and look like the save didn't persist.
+          stateDiagram: { nodes: reactNodes, edges: reactEdges },
         }));
       } catch (err) {
         console.error("Failed to load agent for editing:", err);
@@ -803,6 +813,18 @@ export function WizardShell({ agentId: initialAgentId }: { agentId?: string } = 
           />
         );
       case 4:
+        // The editor's useNodesState seeds from `data` ONCE on mount and
+        // doesn't react to subsequent prop changes. If we let it mount
+        // before the existing-agent load completes, the user would see
+        // the placeholder seeded diagram forever — even after the real
+        // diagram loads into formData. Gate the render until load is done.
+        if (loadingAgent) {
+          return (
+            <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+              Loading saved diagram…
+            </div>
+          );
+        }
         return (
           <StepStateDiagram
             data={formData.stateDiagram}
