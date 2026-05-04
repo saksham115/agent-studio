@@ -2,7 +2,16 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, Boolean, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,6 +23,13 @@ if TYPE_CHECKING:
 
 class State(Base):
     __tablename__ = "states"
+    # Mirrors the `uq_states_agent_name` index added in alembic 004. The
+    # __transition_to_state tool dispatches by state name within an agent;
+    # without uniqueness two same-named states would silently route to
+    # whichever the DB returned first.
+    __table_args__ = (
+        UniqueConstraint("agent_id", "name", name="uq_states_agent_name"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -44,6 +60,11 @@ class State(Base):
         foreign_keys="Transition.from_state_id",
         back_populates="from_state",
         cascade="all, delete-orphan",
+        # Ascending priority: lower priority number = higher precedence.
+        # transition_picker.force_pick_transition relies on candidates[0]
+        # being the highest-priority outgoing transition for its
+        # deterministic fallback when the LLM returns an invalid pick.
+        order_by="Transition.priority",
     )
     incoming_transitions: Mapped[list["Transition"]] = relationship(
         "Transition",

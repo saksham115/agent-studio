@@ -83,8 +83,10 @@ class StateMachine:
     ) -> None:
         """Transition a conversation to a new state and log the change.
 
-        Updates ``conversation.current_state_id`` and writes an audit
-        record to the ``state_transitions`` table.
+        Captures the previous ``current_state_id`` BEFORE mutation, then
+        updates ``current_state_id``, resets the per-state turn counter
+        and entry timestamp, and writes an audit row to
+        ``state_transitions``.
 
         Args:
             conversation: The conversation to transition.
@@ -93,12 +95,13 @@ class StateMachine:
                 this change (may be None for programmatic transitions).
             reason: Optional human-readable reason for the transition.
         """
-        old_state_id = conversation.current_state_id
+        old_state_id = conversation.current_state_id  # capture BEFORE mutation
 
-        # Update the conversation
+        now = datetime.now(timezone.utc)
         conversation.current_state_id = new_state.id
+        conversation.state_entered_at = now
+        conversation.state_turn_count = 0
 
-        # Write audit log
         log = StateTransitionLog(
             conversation_id=conversation.id,
             from_state_id=old_state_id,
@@ -107,7 +110,40 @@ class StateMachine:
             reason=reason,
             metadata_json={
                 "new_state_name": new_state.name,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": now.isoformat(),
+            },
+        )
+        self.db.add(log)
+        await self.db.flush()
+
+    async def bootstrap_initial_state(
+        self,
+        conversation: Conversation,
+        initial_state: State,
+    ) -> None:
+        """Seed the timeline + counters when a conversation enters its first state.
+
+        Writes a ``StateTransitionLog`` row with ``from_state_id=None`` and
+        ``reason="initial_state"`` so the timeline endpoint has a starting
+        anchor; sets the conversation's ``current_state_id``,
+        ``state_entered_at``, and ``state_turn_count`` accordingly. Called by
+        ``Orchestrator.start_conversation`` when the agent has an initial
+        state defined.
+        """
+        now = datetime.now(timezone.utc)
+        conversation.current_state_id = initial_state.id
+        conversation.state_entered_at = now
+        conversation.state_turn_count = 0
+
+        log = StateTransitionLog(
+            conversation_id=conversation.id,
+            from_state_id=None,
+            to_state_id=initial_state.id,
+            transition_id=None,
+            reason="initial_state",
+            metadata_json={
+                "new_state_name": initial_state.name,
+                "timestamp": now.isoformat(),
             },
         )
         self.db.add(log)

@@ -50,6 +50,10 @@ class Conversation(Base):
     current_state_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("states.id", ondelete="SET NULL"), nullable=True
     )
+    state_entered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    state_turn_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     context: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     language: Mapped[str | None] = mapped_column(String(10), nullable=True)

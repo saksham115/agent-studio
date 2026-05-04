@@ -188,6 +188,33 @@ class PlivoClient:
 
         return await asyncio.to_thread(_fetch)
 
+    async def hangup_call(self, call_sid: str) -> bool:
+        """Server-initiated hangup of an active Plivo call.
+
+        Used by the voice channel when the agent transitions into a terminal
+        state (Escalation / Closure) — without this hook the audio leg stays
+        open after the conversation is COMPLETED and subsequent user
+        utterances hit the orchestrator's "not active" guard, surfacing as
+        "Sorry, something went wrong" via Bolna.
+
+        Plivo's Python SDK uses ``client.calls.delete(call_uuid)``, which
+        wraps ``DELETE /v1/Account/{auth_id}/Call/{call_uuid}/``. Returns
+        True on success; False if the call had already ended (404 from
+        Plivo) or the request errored. Callers should treat False as
+        non-fatal — the user-side audio is already gone in either case.
+        """
+        def _hangup():
+            try:
+                self.client.calls.delete(call_sid)
+                return True
+            except plivo.exceptions.PlivoRestError as e:
+                logger.warning(
+                    "Plivo hangup_call failed for %s: %s", call_sid, e,
+                )
+                return False
+
+        return await asyncio.to_thread(_hangup)
+
     async def make_call(
         self,
         from_number: str,
