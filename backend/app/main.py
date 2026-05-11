@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api.v1.router import v1_router
+from app.observability import init_tracing
 
 # Configure app loggers — uvicorn overrides basicConfig, so set explicitly
 _log_handler = logging.StreamHandler(sys.stderr)
@@ -30,6 +31,10 @@ app = FastAPI(
     description="Internal platform for creating, configuring, and deploying AI-powered sales agents across voice, WhatsApp, and chatbot channels for Indian insurance companies.",
     lifespan=lifespan,
 )
+
+# Tracing must be initialised after `app` is created (FastAPI auto-instrumentation
+# attaches middleware to it) but before any requests are served.
+init_tracing(app)
 
 app.add_middleware(
     CORSMiddleware,

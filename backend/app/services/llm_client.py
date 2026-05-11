@@ -293,6 +293,111 @@ class _AnthropicAdapter:
         # trailing assistant turns so Claude always sees a user-last history.
         while out and out[-1].get("role") == "assistant":
             out.pop()
+        # Sanitize tool_use/tool_result pairing: Anthropic enforces that
+        # every ``tool_result`` block must have a matching ``tool_use``
+        # in the immediately preceding assistant message, AND every
+        # ``tool_use`` must be followed by a user turn whose first content
+        # block is the matching ``tool_result``. Pellet/OpenAI is lenient
+        # and our DB-row history can drift out of pairing across
+        # interrupted turns (orphan tool_use after a fast-fail, or
+        # orphan tool_result after a truncation). Drop orphans before
+        # sending — better than 400-ing the whole turn.
+        return _AnthropicAdapter._sanitize_tool_pairing(out)
+
+    @staticmethod
+    def _sanitize_tool_pairing(messages: list[dict]) -> list[dict]:
+        """Drop orphan tool_use / tool_result blocks for Anthropic.
+
+        Walks the message list left-to-right with this state machine:
+        - When an assistant message has tool_use blocks, peek at the
+          *next* user message: keep only tool_use blocks whose ID appears
+          as a tool_result.tool_use_id in that next message; drop the rest.
+        - When a user message has tool_result blocks, keep only those whose
+          tool_use_id was emitted by the *previous* assistant message; drop
+          orphans.
+        Empty messages (all blocks dropped) are removed entirely.
+        """
+        if not messages:
+            return messages
+
+        # First pass: collect, per assistant index, the set of tool_use ids
+        # that have a matching tool_result in the *next* user message.
+        n = len(messages)
+        kept_tool_use_ids: list[set[str]] = [set() for _ in range(n)]
+        for i, msg in enumerate(messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            asst_tool_use_ids = {
+                b.get("id")
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")
+            }
+            if not asst_tool_use_ids:
+                continue
+            # Look at next user message for tool_result blocks
+            next_idx = i + 1
+            if next_idx >= n or messages[next_idx].get("role") != "user":
+                # No following user → all tool_use are orphans
+                continue
+            next_content = messages[next_idx].get("content")
+            if not isinstance(next_content, list):
+                continue
+            next_tool_result_ids = {
+                b.get("tool_use_id")
+                for b in next_content
+                if isinstance(b, dict) and b.get("type") == "tool_result"
+            }
+            kept_tool_use_ids[i] = asst_tool_use_ids & next_tool_result_ids
+
+        # Second pass: rebuild messages dropping orphan tool_use and
+        # orphan tool_result blocks.
+        out: list[dict] = []
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            content = msg.get("content")
+            if role == "assistant" and isinstance(content, list):
+                kept_ids = kept_tool_use_ids[i]
+                new_content = []
+                for b in content:
+                    if (
+                        isinstance(b, dict)
+                        and b.get("type") == "tool_use"
+                        and b.get("id") not in kept_ids
+                    ):
+                        continue  # orphan
+                    new_content.append(b)
+                if not new_content:
+                    new_content = [{"type": "text", "text": ""}]
+                out.append({**msg, "content": new_content})
+            elif role == "user" and isinstance(content, list):
+                # Build allowed tool_use_ids from previous assistant
+                allowed: set[str] = set()
+                if i > 0 and messages[i - 1].get("role") == "assistant":
+                    prev_content = messages[i - 1].get("content")
+                    if isinstance(prev_content, list):
+                        allowed = {
+                            b.get("id")
+                            for b in prev_content
+                            if isinstance(b, dict)
+                            and b.get("type") == "tool_use"
+                            and b.get("id")
+                        } & kept_tool_use_ids[i - 1]
+                new_content = []
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "tool_result":
+                        if b.get("tool_use_id") in allowed:
+                            new_content.append(b)
+                        # else: drop orphan
+                    else:
+                        new_content.append(b)
+                if new_content:
+                    out.append({**msg, "content": new_content})
+                # else: skip empty user message
+            else:
+                out.append(msg)
         return out
 
     @staticmethod
@@ -400,41 +505,3 @@ class LLMClient:
             response.output_tokens,
         )
         return response
-
-    async def evaluate_condition(
-        self,
-        conversation_summary: str,
-        condition: str,
-    ) -> bool:
-        """Evaluate whether a natural-language condition is met (YES/NO)."""
-        system = (
-            "You evaluate whether a condition has been met in a conversation. "
-            "Reply with only YES or NO."
-        )
-        user_message = (
-            f"## Conversation Summary\n{conversation_summary}\n\n"
-            f"## Condition to Evaluate\n{condition}\n\n"
-            "Has this condition been met? Answer YES or NO only."
-        )
-
-        response = await self.chat(
-            system_prompt=system,
-            messages=[{"role": "user", "content": user_message}],
-            max_tokens=8,
-            model=self._adapter.default_eval_model,
-            temperature=0.0,
-        )
-
-        answer = response.content.strip().upper()
-        if answer.startswith("YES"):
-            return True
-        if answer.startswith("NO"):
-            return False
-
-        logger.warning(
-            "Unexpected condition-evaluation answer: %r (condition=%r). "
-            "Defaulting to False.",
-            response.content,
-            condition,
-        )
-        return False

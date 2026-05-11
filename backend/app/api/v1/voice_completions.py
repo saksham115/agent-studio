@@ -16,6 +16,7 @@ text as it would from a real OpenAI streaming endpoint.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -26,12 +27,31 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.database import async_session_factory
+from app.models.conversation import Conversation, ConversationStatus
+from app.observability import tracer
+from app.services.channels.voice.plivo import PlivoClient
 from app.services.orchestrator import ConversationOrchestrator
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Seconds to wait after a terminal-state reply before hanging up the
+# Plivo call. The agent's goodbye line needs time to TTS and play out
+# before we kill the audio leg — too short and the user hears "advisor
+# will call back…" cut off mid-sentence; too long and the user starts
+# talking into a dead conversation. 8s is a comfortable middle for
+# 2-3 sentence replies; tunable if voice replies grow longer.
+TERMINAL_HANGUP_DELAY_S = 8.0
+
+# Module-level set so fire-and-forget asyncio.create_task() instances
+# aren't garbage-collected before they finish (Python's loop only holds
+# weak refs to tasks). The done-callback discards them on completion.
+_pending_hangup_tasks: set[asyncio.Task] = set()
+
+# (The legacy VOICE_HINT user-message prefix was removed — the voice-style
+# system-prompt section in `prompt_builder.build_system_prompt(voice_style=True)`
+# replaces it. Gated by ``mode="voice"`` on the orchestrator call below.)
 
 class ChatMessage(BaseModel):
     role: str
@@ -79,19 +99,42 @@ async def voice_chat_completions(
 
     # Call orchestrator. The voice-style system-prompt section (replaces
     # the legacy VOICE_HINT user-message prefix) is gated by mode="voice"
-    # — see prompt_builder.build_system_prompt for the rendered text.
-    try:
-        async with async_session_factory() as db:
-            orchestrator = ConversationOrchestrator(db)
-            response = await orchestrator.process_message(
-                conversation_id=conversation_id,
-                user_message=user_text,
-                mode="voice",
-            )
-            await db.commit()
-    except Exception:
-        logger.exception("Orchestrator failed for conversation %s", conversation_id)
-        return _respond("Sorry, something went wrong. Please try again.", request.stream)
+    # in prompt_builder.build_system_prompt — see that function for the
+    # rendered Response Style block.
+    with tracer.start_as_current_span("voice.completions") as span:
+        span.set_attribute("voice.conversation_id", str(conversation_id))
+        span.set_attribute("voice.stream", request.stream)
+        span.set_attribute("voice.user_text_length", len(user_text))
+        try:
+            async with async_session_factory() as db:
+                orchestrator = ConversationOrchestrator(db)
+                response = await orchestrator.process_message(
+                    conversation_id=conversation_id,
+                    user_message=user_text,
+                    mode="voice",
+                )
+                await db.commit()
+                # If the orchestrator marked the conversation COMPLETED
+                # (terminal-state transition), schedule a delayed Plivo
+                # hangup so the user hears the goodbye line and then the
+                # call drops cleanly — instead of staying open for more
+                # utterances that hit the "not active" guard.
+                if response.status == ConversationStatus.COMPLETED.value:
+                    conv = await db.get(Conversation, conversation_id)
+                    call_sid = (conv.context or {}).get("call_sid") if conv else None
+                    if call_sid:
+                        _schedule_terminal_hangup(conversation_id, call_sid)
+                    else:
+                        logger.warning(
+                            "Conversation %s reached terminal state but no "
+                            "call_sid in context — cannot hangup",
+                            conversation_id,
+                        )
+        except Exception:
+            logger.exception("Orchestrator failed for conversation %s", conversation_id)
+            span.set_attribute("voice.error", True)
+            return _respond("Sorry, something went wrong. Please try again.", request.stream)
+        span.set_attribute("voice.response_length", len(response.message))
 
     logger.info(
         "Voice completions response: conversation_id=%s, text=%r",
@@ -100,6 +143,37 @@ async def voice_chat_completions(
     )
 
     return _respond(response.message, request.stream)
+
+
+def _schedule_terminal_hangup(conversation_id: uuid.UUID, call_sid: str) -> None:
+    """Fire-and-forget a delayed Plivo hangup for a completed conversation.
+
+    Tracked in ``_pending_hangup_tasks`` so the task isn't GC'd before the
+    delay elapses. Idempotent: if the user hangs up first or a concurrent
+    completion fires this twice, ``hangup_call`` returns False on the
+    second attempt (404 from Plivo) and we just log it.
+    """
+    task = asyncio.create_task(_delayed_terminal_hangup(conversation_id, call_sid))
+    _pending_hangup_tasks.add(task)
+    task.add_done_callback(_pending_hangup_tasks.discard)
+
+
+async def _delayed_terminal_hangup(
+    conversation_id: uuid.UUID, call_sid: str,
+) -> None:
+    """Wait for the goodbye line to play out, then hang up the Plivo leg."""
+    try:
+        await asyncio.sleep(TERMINAL_HANGUP_DELAY_S)
+        ok = await PlivoClient().hangup_call(call_sid)
+        logger.info(
+            "Terminal-state hangup conversation=%s call_sid=%s after %.1fs: ok=%s",
+            conversation_id, call_sid, TERMINAL_HANGUP_DELAY_S, ok,
+        )
+    except Exception:
+        logger.warning(
+            "Terminal-state hangup task failed for conversation=%s call_sid=%s",
+            conversation_id, call_sid, exc_info=True,
+        )
 
 
 def _respond(content: str, stream: bool):

@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     BOLNA_API_URL: str = "http://localhost:5001"
     BOLNA_WS_URL: str = "ws://localhost:5001"
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    # Honeycomb tracing. Empty key disables tracing entirely (no-op).
+    HONEYCOMB_API_KEY: str = ""
+    OTEL_SERVICE_NAME: str = "agent-studio-backend"
 
     # Postgres connection components — Agno's AsyncPostgresDb wants a
     # SQLAlchemy-style URL via async_pg_url (psycopg3 async). Discrete fields
