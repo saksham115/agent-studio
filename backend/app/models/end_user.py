@@ -1,13 +1,14 @@
-"""EndUser model — the identity layer that binds callers to mem0 user_ids.
+"""EndUser model — the identity layer that binds callers to Agno user_ids.
 
-mem0 takes a string ``user_id`` but doesn't manage who that user IS — that
-mapping (phone number / SIP URI / chatbot session ID → stable UUID) is ours.
-``EndUser.id`` is the UUID we hand to mem0 on every ``add()`` and
-``get_all()``; mem0 stores its own facts keyed on it.
+Agno's MemoryManager keys facts on a string ``user_id`` but doesn't manage
+who that user IS — that mapping (phone number / SIP URI / chatbot session
+ID → stable UUID) is ours.
+``EndUser.id`` is the UUID we hand to Agno's memory APIs; Agno stores its
+own facts keyed on it.
 
-Memory storage itself lives in mem0's tables (``agent_studio_memory``,
-``agent_studio_memory_history``) created lazily by mem0's pgvector backend
-in our shared Postgres. We don't model those here.
+Memory storage itself lives in Agno's table ``agno_memories`` (plus an
+auxiliary ``agno_schema_versions``), created lazily by ``AsyncPostgresDb``
+on first use in our shared Postgres. We don't model those here.
 
 Identity is per-agent: same phone number calling Agent A and Agent B
 produces two distinct ``EndUser`` rows. Cross-agent unification is out of

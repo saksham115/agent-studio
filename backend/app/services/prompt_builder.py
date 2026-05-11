@@ -74,7 +74,7 @@ class PromptBuilder:
             Pre-retrieved knowledge-base text relevant to the current
             user query.  Empty string when nothing was retrieved.
         user_memories:
-            Stored facts about the calling end user, retrieved from mem0.
+            Stored facts about the calling end user, retrieved from Agno.
             Each string is a complete fact statement; rendered as a bullet.
             Empty / None → memory section is omitted entirely.
         voice_style:
@@ -148,7 +148,7 @@ class PromptBuilder:
         # Recency-salience tradeoff: appending here is several thousand
         # tokens before the user message. Llama 70B follows this less
         # tightly than the legacy VOICE_HINT prefix did — but the prefix
-        # polluted message history (and thus mem0 extraction). Acceptable
+        # polluted message history (and thus Agno extraction). Acceptable
         # for now; if voice replies creep long, the fixes are (a) re-add
         # a tiny mode-gated user-message prefix in the orchestrator, or
         # (b) post-completion truncation. See plan, step 9.
@@ -166,9 +166,9 @@ class PromptBuilder:
     def _build_memory_section(user_memories: list[str] | None) -> str:
         """Format end-user memory facts as a bulleted system-prompt section.
 
-        Each list entry is a self-contained fact string from mem0, rendered
+        Each list entry is a self-contained fact string from Agno, rendered
         verbatim as a bullet. We don't re-rank, dedupe, or summarize here —
-        mem0's ``get_all`` already returned the most-recent-first slice
+        Agno's ``get_all`` already returned the most-recent-first slice
         capped at the orchestrator's limit.
         """
         if not user_memories:

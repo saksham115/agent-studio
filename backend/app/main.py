@@ -1,12 +1,7 @@
 import logging
-import os
 import sys
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
-
-# mem0 phones home telemetry on first call. Opt out before any mem0 import
-# possibly fires from a sub-module (e.g. app.services.memory).
-os.environ.setdefault("MEM0_TELEMETRY", "False")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

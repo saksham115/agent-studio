@@ -16,11 +16,12 @@ that order:
 Idempotent: re-running finds the already-bound rows have no work left
 and exits clean. Safe to run mid-deploy or repeatedly.
 
-Memory backfill is OUT OF SCOPE — mem0 starts empty after this PR. We
-deliberately don't replay old messages through ``mem0.add`` here:
+Memory backfill is OUT OF SCOPE — Agno's ``agno_memories`` starts empty
+after this PR. We deliberately don't replay old messages through Agno's
+extraction here:
 
-- Each replay costs an LLM call (Pellet credits).
-- mem0's extraction prompt is tuned for in-flight conversations, not
+- Each replay costs an LLM call (Pellet credits / Anthropic spend).
+- Agno's extraction prompt is tuned for in-flight conversations, not
   cold archives — facts may be lower quality.
 - The user-visible benefit is "the next call remembers you", which is
   served by populating memory forward-only.
