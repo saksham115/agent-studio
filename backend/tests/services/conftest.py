@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import asyncio
 import uuid
 
 import pytest
@@ -12,22 +12,34 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 @pytest.fixture(autouse=True)
-def _reset_mem0_cache():
-    """Clear ``app.services.memory._build_memory``'s lru_cache after each test.
+def _reset_agno_singletons():
+    """Clear ``memory.py``'s per-loop singleton between tests.
 
-    ``_build_memory`` is ``@lru_cache(maxsize=1)`` so it constructs at most
-    one ``Memory`` instance per process. Tests that monkeypatch it
-    would otherwise leak state between tests via the cache. Yields, then
-    clears.
+    The Agno wrapper stores ``(db, mm)`` as an attribute on the running
+    event loop via ``setattr(loop, _LOOP_SLOT, ...)``. pytest-asyncio
+    reuses a single event loop across tests by default, so without
+    cleanup a previous test's monkey-patched components leak into the
+    next. We can't ``asyncio.get_running_loop()`` from a sync fixture, so
+    we instead delete the slot from any loop attached to ``asyncio.events``
+    on teardown — cheap, idempotent, harmless when no loop exists yet.
     """
     yield
-    # Lazy import: only do this if the memory module was loaded by the test.
-    # Importing memory.py runs the EmbedderFactory hijack and pulls voyageai —
-    # tests that don't touch memory shouldn't pay that import cost.
     import sys
     mod = sys.modules.get("app.services.memory")
-    if mod is not None:
-        mod._build_memory.cache_clear()
+    if mod is None:
+        return
+    slot = getattr(mod, "_LOOP_SLOT", None)
+    if slot is None:
+        return
+    # Best-effort: walk both the running loop (if any) and the policy's
+    # default loop. asyncio.get_event_loop() in 3.10 may auto-create.
+    for getter in (asyncio.get_event_loop_policy().get_event_loop,):
+        try:
+            loop = getter()
+            if hasattr(loop, slot):
+                delattr(loop, slot)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -37,17 +49,7 @@ def _reset_mem0_cache():
 
 @pytest_asyncio.fixture(scope="function")
 async def db_session():
-    """Per-test AsyncSession against the dev Postgres.
-
-    Each test gets its own session; rows it writes are tracked and deleted
-    in teardown so tests don't pollute the dev DB. We don't wrap the
-    session in a single transaction-rolled-back-on-exit because
-    ``EndUserService`` commits internally (intentional — its callers are
-    request-scoped and need the row immediately readable).
-
-    Skips with a clear message if no DATABASE_URL is configured (CI / dry
-    clones).
-    """
+    """Per-test AsyncSession against the dev Postgres."""
     from app.config import settings
 
     if not settings.DATABASE_URL:
@@ -62,11 +64,7 @@ async def db_session():
 
 @pytest_asyncio.fixture(scope="function")
 async def test_agent(db_session):
-    """A throwaway published Agent the EndUser FK can attach to.
-
-    Created once per test and deleted on teardown along with any
-    EndUsers that referenced it (CASCADE).
-    """
+    """A throwaway published Agent the EndUser FK can attach to."""
     from app.models.agent import Agent, AgentStatus
     from app.models.user import Organization
 
@@ -87,7 +85,6 @@ async def test_agent(db_session):
 
     yield agent
 
-    # Teardown: agent CASCADE deletes its EndUsers.
     await db_session.execute(delete(Agent).where(Agent.id == agent.id))
     await db_session.execute(delete(Organization).where(Organization.id == org.id))
     await db_session.commit()
