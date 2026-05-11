@@ -44,7 +44,7 @@ class WhatsAppMessageHandler:
         """Process an incoming WhatsApp message and return the agent's response.
 
         Flow:
-        1. Resolve the EndUser identity from the sender's phone number. mem0
+        1. Resolve the EndUser identity from the sender's phone number. Agno
            uses this UUID as ``user_id``, so cross-message memory recall
            works the same way it does on voice.
         2. Find an existing ACTIVE conversation for this end-user. Falls back
@@ -55,11 +55,13 @@ class WhatsAppMessageHandler:
         4. Process media messages.
         5. Pass through the orchestrator (mode="text"; voice_style off).
 
-        Memory write-path is intentionally NOT triggered here. WA conversations
-        rarely terminate cleanly (no hangup signal), so a sole post-message
-        ``add_memory`` would build cumulative memory from many short messages.
-        Memory READ still works for free via the orchestrator. Write-path
-        is in the follow-up list (see plan).
+        Memory writes are NOT scheduled inline here. WhatsApp has no clean
+        termination signal (no hangup, no end_session), so the
+        ``memory.extract_idle_conversations`` Celery beat task drives the
+        write path — it sweeps every 5 min and extracts conversations
+        idle past ``MEMORY_IDLE_THRESHOLD_MINUTES`` (default 10), then
+        closes them. Memory READ still works for free via the orchestrator's
+        ``get_user_memories`` call on every incoming message.
         """
         # -- 1. Resolve EndUser identity ----------------------------------------
         end_user = await EndUserService(self.db).get_or_create_by_caller(

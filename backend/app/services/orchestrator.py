@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -107,7 +107,7 @@ class ConversationOrchestrator:
         them in:
 
         - ``end_user_id`` — the EndUser UUID minted by
-          ``EndUserService.get_or_create_by_caller``. Used as mem0's
+          ``EndUserService.get_or_create_by_caller``. Used as Agno's
           ``user_id``.
         - ``external_user_phone`` / ``external_user_id`` — the dispatched
           identifier (E.164 phone if it parsed; the raw caller string
@@ -156,6 +156,10 @@ class ConversationOrchestrator:
         )
         self.db.add(welcome_msg)
         conversation.message_count = 1
+        # Bump last_message_at for the idle-sweep predicate. The welcome
+        # message is the first activity on this conversation; the Celery
+        # task uses last_message_at < cutoff to find idle rows.
+        conversation.last_message_at = func.now()
         await self.db.flush()
 
         # Bump the EndUser conversation counter atomically. Done after the
@@ -267,6 +271,10 @@ class ConversationOrchestrator:
             content=user_message,
         )
         self.db.add(user_msg)
+        # Bump last_message_at — idle-sweep predicate. Co-located with the
+        # Message INSERT inside the same transaction so the column always
+        # reflects the most recent activity for this conversation.
+        conversation.last_message_at = func.now()
         await self.db.flush()
 
         # ---- 5. Knowledge-base retrieval ---------------------------------
@@ -294,9 +302,9 @@ class ConversationOrchestrator:
         # Load recent messages from the DB (the relationship may be stale)
         messages_list = await self._load_messages(conversation_id)
 
-        # Cross-call memory recall (mem0). Anonymous calls have no
+        # Cross-call memory recall (Agno). Anonymous calls have no
         # end_user_id and skip this entirely; new users get an empty list
-        # from get_user_memories on the first call. Failures inside mem0
+        # from get_user_memories on the first call. Failures inside Agno
         # are swallowed there and return [], so this never blocks the turn.
         user_memories: list[str] = []
         if conversation.end_user_id is not None:
@@ -499,6 +507,7 @@ class ConversationOrchestrator:
             ),
         )
         self.db.add(assistant_msg)
+        conversation.last_message_at = func.now()
         await self.db.flush()
 
         # ---- 11. Evaluate state transitions ------------------------------
@@ -554,6 +563,7 @@ class ConversationOrchestrator:
                         ),
                     )
                     self.db.add(sys_msg)
+                    conversation.last_message_at = func.now()
 
                     current_state = target_state
 
@@ -721,6 +731,14 @@ class ConversationOrchestrator:
             },
         )
         self.db.add(tool_result_msg)
+        # Bump last_message_at on the parent conversation — keeps the
+        # idle-sweep predicate accurate for tool-using turns. Uses SQL
+        # UPDATE because this helper doesn't take a Conversation object.
+        await self.db.execute(
+            update(Conversation)
+            .where(Conversation.id == conversation_id)
+            .values(last_message_at=func.now())
+        )
         await self.db.flush()
 
     async def _log_guardrail_trigger(

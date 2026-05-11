@@ -1,9 +1,9 @@
 """EndUser identity binding — maps callers (phone / SIP URI / chatbot id) to UUIDs.
 
-The UUIDs we mint here are what we hand to mem0 as ``user_id``. mem0 keys
-its facts on that string; without a stable per-caller UUID, two calls
-from the same person would produce two memory namespaces and the agent
-would forget the user between calls.
+The UUIDs we mint here are what we hand to Agno's MemoryManager as
+``user_id``. Agno keys its facts on that string; without a stable
+per-caller UUID, two calls from the same person would produce two memory
+namespaces and the agent would forget the user between calls.
 
 Per-agent identity scope: same phone calling Agent A and Agent B yields
 two distinct EndUser rows. Cross-agent unification is intentionally out
@@ -27,6 +27,7 @@ from sqlalchemy import func, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.end_user import EndUser
 from app.services.phone_normalizer import normalize_phone
 
@@ -52,11 +53,22 @@ class EndUserService:
         Empty / None / whitespace-only → returns None (anonymous; caller
         should set ``end_user_id=None`` on the Conversation and skip
         memory binding for the call).
+
+        **Dev-only SIP alias.** If ``raw_id`` exactly matches a configured
+        ``DEV_SIP_ALIAS_URI`` (set in .env), it's substituted with the
+        corresponding phone number before normalization — so a Plivo SIP
+        softphone caller unifies with their WhatsApp/chatbot EndUser
+        without needing a real PSTN DID. Empty in production.
         """
         if not raw_id or not raw_id.strip():
             return None
 
-        phone = normalize_phone(raw_id)
+        stripped = raw_id.strip()
+        aliased = settings.dev_sip_phone_aliases.get(stripped)
+        if aliased is not None:
+            stripped = aliased  # route through phone path
+
+        phone = normalize_phone(stripped)
         if phone:
             return await self._upsert_by_phone(agent_id, phone, name)
         return await self._upsert_by_external_id(agent_id, raw_id.strip(), name)

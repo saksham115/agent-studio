@@ -1,1 +1,6 @@
 __pycache__/
+
+# Celery beat persistent schedule (runtime state)
+celerybeat-schedule
+celerybeat-schedule.db
+celerybeat.pid
