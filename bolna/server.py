@@ -44,9 +44,24 @@ install_patches()
 # voice.completions LLM bar — needed to answer "STT/LLM/TTS taking how long".
 patch_bolna_for_tracing()
 
+# Upstash aggressively closes idle TCP connections, so pooled Redis sockets
+# go stale between calls and the next /agent POST fails with
+# ConnectionResetError. health_check_interval pings every 30s to detect dead
+# sockets (Upstash docs explicitly recommend this), retry_on_error reconnects
+# transparently on the first write, and socket_keepalive lets the kernel
+# notice half-open connections sooner. REDIS_URL must use the rediss:// scheme
+# (TLS) — from_url auto-enables TLS based on the scheme.
+from redis.asyncio.retry import Retry
+from redis.backoff import ExponentialBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError, TimeoutError as RedisTimeoutError
+
 redis_pool = redis.ConnectionPool.from_url(
     os.getenv("REDIS_URL", "redis://localhost:6379/1"),
     decode_responses=True,
+    health_check_interval=30,
+    socket_keepalive=True,
+    retry=Retry(ExponentialBackoff(cap=2, base=0.1), retries=3),
+    retry_on_error=[RedisConnectionError, RedisTimeoutError],
 )
 redis_client = redis.Redis.from_pool(redis_pool)
 
