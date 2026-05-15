@@ -61,6 +61,8 @@ class PromptBuilder:
         current_state: State | None,
         guardrails: list[Guardrail],
         kb_context: str,
+        user_memories: list[str] | None = None,
+        voice_style: bool = False,
         state_turn_count: int = 0,
         max_turns: int | None = None,
     ) -> str:
@@ -75,10 +77,12 @@ class PromptBuilder:
            ``current_state`` is provided).
         1. Agent base system prompt.
         2. Persona.
-        3. Languages.
-        4. Guardrail constraints.
-        5. Knowledge-base context.
-        6. Fallback / escalation instructions.
+        3. What you remember about this user *(when ``user_memories`` non-empty)*.
+        4. Languages.
+        5. Guardrail constraints.
+        6. Knowledge-base context.
+        7. Fallback / escalation instructions.
+        8. Response style *(when ``voice_style`` is True)*.
 
         Parameters
         ----------
@@ -92,6 +96,16 @@ class PromptBuilder:
         kb_context:
             Pre-retrieved knowledge-base text relevant to the current
             user query.  Empty string when nothing was retrieved.
+        user_memories:
+            Stored facts about the calling end user, retrieved from Agno.
+            Each string is a complete fact statement; rendered as a bullet.
+            Empty / None → memory section is omitted entirely.
+        voice_style:
+            When True, append a "Response Style" section instructing the
+            agent to keep replies short and conversational. Used by voice
+            channels where long replies hurt UX (the user is listening,
+            not reading). Replaces the legacy ``VOICE_HINT`` user-message
+            prefix; see ``voice_completions.py``.
         state_turn_count:
             How many agent turns have already completed in the current
             state (incremented at the top of ``process_message``). Used
@@ -122,7 +136,16 @@ class PromptBuilder:
         if agent.persona:
             sections.append(f"## Persona\nYour name is {agent.persona}.")
 
-        # 3. Languages --------------------------------------------------
+        # 3. End-user memory --------------------------------------------
+        # Positioned right after Persona so the LLM treats the caller's
+        # facts as core context — same tier as "who you are". A later
+        # position (after languages / state / KB) buries it under
+        # operational instructions and the model under-references it.
+        memory_section = self._build_memory_section(user_memories)
+        if memory_section:
+            sections.append(memory_section)
+
+        # 4. Languages --------------------------------------------------
         languages = agent.languages or []
         if languages:
             lang_list = ", ".join(languages)
@@ -133,23 +156,56 @@ class PromptBuilder:
                 f"unless they explicitly ask for a different language."
             )
 
-        # 4. Guardrails -------------------------------------------------
+        # 5. Guardrails -------------------------------------------------
+        # State and transitions used to live here, but the state-diagram
+        # refactor moved them to the top-of-prompt # YOUR CURRENT TASK
+        # block (section 0). Removed from here to avoid duplication.
         guardrails_section = self._build_guardrails_section(guardrails)
         if guardrails_section:
             sections.append(guardrails_section)
 
-        # 5. Knowledge-base context -------------------------------------
+        # 6. Knowledge-base context -------------------------------------
         if kb_context and kb_context.strip():
             sections.append(
                 f"## Relevant Knowledge\n{kb_context.strip()}"
             )
 
-        # 6. Fallback / escalation --------------------------------------
+        # 7. Fallback / escalation --------------------------------------
         fallback_section = self._build_fallback_section(agent)
         if fallback_section:
             sections.append(fallback_section)
 
+        # 8. Voice response style ---------------------------------------
+        # Recency-salience tradeoff: appending here is several thousand
+        # tokens before the user message. Llama 70B follows this less
+        # tightly than the legacy VOICE_HINT prefix did — but the prefix
+        # polluted message history (and thus Agno extraction). Acceptable
+        # for now; if voice replies creep long, the fixes are (a) re-add
+        # a tiny mode-gated user-message prefix in the orchestrator, or
+        # (b) post-completion truncation. See plan, step 9.
+        if voice_style:
+            sections.append(
+                "## Response Style\n"
+                "This is a voice call. Keep your response under 2-3 short "
+                "sentences. Be conversational and concise — the user is "
+                "listening, not reading."
+            )
+
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _build_memory_section(user_memories: list[str] | None) -> str:
+        """Format end-user memory facts as a bulleted system-prompt section.
+
+        Each list entry is a self-contained fact string from Agno, rendered
+        verbatim as a bullet. We don't re-rank, dedupe, or summarize here —
+        Agno's ``get_all`` already returned the most-recent-first slice
+        capped at the orchestrator's limit.
+        """
+        if not user_memories:
+            return ""
+        bullets = "\n".join(f"- {fact}" for fact in user_memories)
+        return f"## What you remember about this user\n{bullets}"
 
     # ------------------------------------------------------------------
     # Tool definitions

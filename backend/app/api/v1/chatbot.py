@@ -6,7 +6,7 @@ These endpoints are mounted at /api/v1/chat/{agent_id}/...
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Header, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,20 +116,48 @@ async def create_session(
     db: AsyncSession = Depends(get_db),
     agent: Agent = Depends(validate_api_key),
 ) -> ChatSessionResponse:
-    """Create a new chat session with the agent."""
+    """Create a new chat session with the agent.
+
+    When ``body.user_id`` is provided, we resolve it to an EndUser so cross-
+    session memory recall works the same way it does on voice/WA.
+
+    Phone-shaped user_ids (the chatbot widget supplies an E.164-formatted
+    or hyphenated phone) parse via ``normalize_phone`` and route to
+    ``end_users.phone_number``. This means the SAME person reaching the
+    same agent via voice + WhatsApp + chatbot-with-phone-user_id all
+    unify to one EndUser row and share their memory pool.
+
+    Opaque chatbot session IDs (UUIDs, anonymous strings) fail to parse
+    and route to ``end_users.external_id`` — these don't unify with
+    voice/WA. Closing that gap requires the chatbot widget to collect
+    and forward phone client-side (frontend product change).
+
+    Anonymous sessions (no user_id at all) skip EndUser binding entirely —
+    the Conversation row gets ``end_user_id=NULL`` and memory is
+    per-session.
+    """
+    from app.services.end_user_service import EndUserService
     from app.services.orchestrator import ConversationOrchestrator
 
+    end_user_id: uuid.UUID | None = None
+    if body and body.user_id:
+        end_user = await EndUserService(db).get_or_create_by_caller(
+            agent_id, body.user_id, name=body.user_name,
+        )
+        end_user_id = end_user.id if end_user else None
+
     orchestrator = ConversationOrchestrator(db)
-    conversation = await orchestrator.start_conversation(
+    response = await orchestrator.start_conversation(
         agent_id=agent_id,
+        end_user_id=end_user_id,
         external_user_id=body.user_id if body else None,
         external_user_name=body.user_name if body else None,
     )
 
     return ChatSessionResponse(
-        session_id=conversation.id,
+        session_id=response.conversation_id,
         agent_id=agent_id,
-        status=conversation.status.value,
+        status=response.status,
         welcome_message=agent.welcome_message,
     )
 
@@ -218,10 +246,19 @@ async def get_session(
 async def end_session(
     agent_id: uuid.UUID,
     session_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     agent: Agent = Depends(validate_api_key),
 ) -> None:
-    """End a chat session."""
+    """End a chat session.
+
+    Schedules a fire-and-forget memory write off the response hot path
+    (``_post_call_memory_write`` opens its own session; the FastAPI
+    request session is closed by the time BackgroundTask fires). Mirrors
+    the voice hangup-webhook pattern. Memory failures are swallowed by
+    ``add_memory``; conversation.memory_extraction_attempts is bumped
+    on failure so the Celery idle sweep retries up to the cap.
+    """
     conversation = await db.get(Conversation, session_id)
     if not conversation or conversation.agent_id != agent_id:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -230,3 +267,15 @@ async def end_session(
     conversation.status = ConversationStatus.COMPLETED
     conversation.ended_at = datetime.now(timezone.utc)
     await db.flush()
+
+    if conversation.end_user_id is not None:
+        # Import lazily to avoid pulling the webhooks router into chatbot's
+        # import graph at module load.
+        from app.api.v1.webhooks import _post_call_memory_write
+        background_tasks.add_task(
+            _post_call_memory_write,
+            conversation.id,
+            conversation.end_user_id,
+            conversation.agent_id,
+            # close_conversation=False — we already set COMPLETED above.
+        )

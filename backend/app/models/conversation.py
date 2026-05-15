@@ -11,6 +11,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.agent import Agent
+    from app.models.end_user import EndUser
 
 
 class ConversationStatus(str, enum.Enum):
@@ -38,6 +39,17 @@ class Conversation(Base):
     )
     channel_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
+    )
+    # FK to end_users — the identity layer that maps callers (phone / SIP URI /
+    # chatbot user_id) to a stable UUID handed to Agno as user_id. Nullable:
+    # anonymous callers and pre-backfill rows have it NULL. Composite index
+    # idx_conversations_end_user_status (added in alembic 004) covers the
+    # active-conversation lookup for WhatsApp/voice/chatbot — no separate
+    # column-level index needed.
+    end_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("end_users.id", ondelete="SET NULL"),
+        nullable=True,
     )
     external_user_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     external_user_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -67,8 +79,26 @@ class Conversation(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Memory layer tracking (alembic 006). last_message_at drives the idle
+    # sweep that catches WhatsApp + chatbot conversations (no clean end
+    # signal); memory_written_at is set only on a successful Agno extraction
+    # so failures leave the row sweep-eligible for retry up to the cap.
+    last_message_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    memory_written_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    memory_extraction_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     agent: Mapped["Agent"] = relationship("Agent", back_populates="conversations")
+    end_user: Mapped["EndUser | None"] = relationship(
+        "EndUser",  # forward-ref string sidesteps circular import
+        back_populates="conversations",
+        lazy="select",  # never lazy="raise" — explicit code paths read this
+    )
     messages: Mapped[list["Message"]] = relationship(
         "Message", back_populates="conversation", cascade="all, delete-orphan",
         order_by="Message.created_at",

@@ -49,12 +49,9 @@ TERMINAL_HANGUP_DELAY_S = 8.0
 # weak refs to tasks). The done-callback discards them on completion.
 _pending_hangup_tasks: set[asyncio.Task] = set()
 
-# Voice hint prepended to user messages for concise responses
-VOICE_HINT = (
-    "[VOICE CALL: Keep your response under 2-3 short sentences. "
-    "Be conversational and concise — the user is listening, not reading.]\n\n"
-)
-
+# (The legacy VOICE_HINT user-message prefix was removed — the voice-style
+# system-prompt section in `prompt_builder.build_system_prompt(voice_style=True)`
+# replaces it. Gated by ``mode="voice"`` on the orchestrator call below.)
 
 class ChatMessage(BaseModel):
     role: str
@@ -100,7 +97,10 @@ async def voice_chat_completions(
         user_text[:200],
     )
 
-    # Call orchestrator
+    # Call orchestrator. The voice-style system-prompt section (replaces
+    # the legacy VOICE_HINT user-message prefix) is gated by mode="voice"
+    # in prompt_builder.build_system_prompt — see that function for the
+    # rendered Response Style block.
     with tracer.start_as_current_span("voice.completions") as span:
         span.set_attribute("voice.conversation_id", str(conversation_id))
         span.set_attribute("voice.stream", request.stream)
@@ -110,7 +110,8 @@ async def voice_chat_completions(
                 orchestrator = ConversationOrchestrator(db)
                 response = await orchestrator.process_message(
                     conversation_id=conversation_id,
-                    user_message=VOICE_HINT + user_text,
+                    user_message=user_text,
+                    mode="voice",
                 )
                 await db.commit()
                 # If the orchestrator marked the conversation COMPLETED

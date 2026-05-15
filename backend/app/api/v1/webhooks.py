@@ -17,9 +17,10 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import select
+from opentelemetry import trace
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -27,7 +28,7 @@ from app.api.deps import get_db
 from app.config import settings
 from app.models.channel import Channel, ChannelType, ChannelStatus
 from app.models.channel import WhatsAppProvider as WhatsAppProviderModel
-from app.models.conversation import Conversation
+from app.models.conversation import Conversation, ConversationStatus, Message, MessageRole
 from app.services.channels.whatsapp.gupshup import GupshupAdapter
 from app.services.channels.whatsapp.meta_cloud import MetaCloudAdapter
 from app.services.channels.whatsapp.provider import WhatsAppProviderBase
@@ -38,8 +39,10 @@ from app.services.channels.voice.plivo_xml import (
     say_response,
 )
 from app.services.channels.voice.handler import VoiceCallHandler
+from app.services.memory import add_memory
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 router = APIRouter()
 
@@ -467,6 +470,7 @@ async def handle_voice_incoming(
 @router.post("/voice/status")
 async def handle_voice_status(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Plivo hangup_url + status callbacks.
@@ -475,6 +479,14 @@ async def handle_voice_status(
     the linked Conversation. Plivo also opens a transient 2nd WebSocket at
     hangup (Bolna issue #148) — voicebot_ws.py defends against duplicate
     connections; this handler just records the call-end.
+
+    Memory write is deferred via FastAPI :class:`BackgroundTasks`, NOT inline:
+    Plivo's hangup_url has a real timeout (~15s); Agno's extraction call is
+    1.5-4s happy-path and can spike to 10s+ when the LLM is slow. Inline =
+    Plivo timeout → retry → duplicate work. Background = Plivo gets a fast
+    200 OK; the memory work runs after the response is sent. Safe because
+    the caller is already gone; Plivo retries land on the FOR UPDATE
+    idempotency guard in ``_post_call_memory_write``.
     """
     form_data = await request.form()
     payload = dict(form_data)
@@ -500,7 +512,151 @@ async def handle_voice_status(
                 call_event.call_sid, conversation_id, call_event.status,
             )
 
+            # Schedule memory write off the request hot path. Read identity
+            # fields BEFORE the request session closes — the BackgroundTask
+            # opens its own session and can't access a detached row.
+            conv = await db.get(Conversation, conversation_id)
+            if conv and conv.end_user_id is not None:
+                background_tasks.add_task(
+                    _post_call_memory_write,
+                    conversation_id,
+                    conv.end_user_id,
+                    conv.agent_id,
+                )
+
     return {"status": "ok"}
+
+
+async def _post_call_memory_write(
+    conversation_id: uuid.UUID,
+    end_user_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    *,
+    close_conversation: bool = False,
+) -> None:
+    """Hardened memory write for a completed conversation.
+
+    Properties:
+    - **Idempotent.** Guards via ``SELECT ... FOR UPDATE`` on the
+      Conversation row. Concurrent callers (Plivo retry, double-tapped
+      chatbot ``end_session``, Celery sweep overlap) BLOCK at the lock,
+      then see populated ``memory_written_at`` and short-circuit. SKIP
+      LOCKED would let them double-extract — wrong primitive for
+      idempotency.
+    - **Success-conditional.** ``add_memory`` returns ``bool``. On True
+      we set ``memory_written_at = now()``. On False we increment
+      ``memory_extraction_attempts``; the Celery sweep retries up to
+      ``MEMORY_MAX_EXTRACTION_ATTEMPTS``. Failed extractions never get
+      a sentinel ``memory_written_at`` — that would be silent data loss.
+    - **Atomic close.** When ``close_conversation=True`` (Celery sweep,
+      since WhatsApp has no termination signal), the success branch
+      writes ``memory_written_at + status=COMPLETED + ended_at`` in ONE
+      transaction. Voice (Plivo) and chatbot (``end_session``) pass
+      False because their channels close the conversation via their own
+      paths.
+    - **Cap-aware.** Rows that hit the attempts cap short-circuit before
+      we burn another LLM call. The partial index ``idx_conversations_idle_sweep``
+      also filters them out so the sweep doesn't pick them again.
+
+    Runs AFTER the webhook returns 200. The FastAPI request session
+    (``Depends(get_db)``) is closed by the time BackgroundTasks fire, so
+    we open a fresh session here.
+
+    Skips SYSTEM messages (state-transition notes pollute extraction) and
+    TOOL messages (raw JSON results aren't user-relevant facts). Empty
+    conversations (no user/assistant exchange) are silently no-op'd.
+    """
+    from app.database import async_session_factory
+
+    with tracer.start_as_current_span("memory.persist_for_conversation") as span:
+        span.set_attribute("conversation_id", str(conversation_id))
+        span.set_attribute("agent_id", str(agent_id))
+        span.set_attribute("close_conversation", close_conversation)
+
+        async with async_session_factory() as db:
+            # Idempotency guard with FOR UPDATE (NOT skip_locked). Blocks
+            # concurrent callers; they see populated memory_written_at and
+            # return. SKIP LOCKED here would let parallel writers see "no
+            # row" and double-extract.
+            guard = await db.execute(
+                select(
+                    Conversation.memory_written_at,
+                    Conversation.memory_extraction_attempts,
+                )
+                .where(Conversation.id == conversation_id)
+                .with_for_update()
+            )
+            row = guard.one_or_none()
+            if row is None:
+                logger.warning(
+                    "Conversation %s not found in _post_call_memory_write",
+                    conversation_id,
+                )
+                span.set_attribute("skipped.reason", "conversation_not_found")
+                return
+            already_written, attempts = row
+            if already_written is not None:
+                logger.info(
+                    "Memory already written for conversation=%s; skipping",
+                    conversation_id,
+                )
+                span.set_attribute("skipped.reason", "already_written")
+                return
+            if attempts >= settings.MEMORY_MAX_EXTRACTION_ATTEMPTS:
+                logger.info(
+                    "Conversation=%s hit attempts cap (%d); skipping",
+                    conversation_id, attempts,
+                )
+                span.set_attribute("skipped.reason", "attempts_cap_reached")
+                span.set_attribute("attempts.before", attempts)
+                return
+
+            stmt = (
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .where(Message.role.in_([MessageRole.USER, MessageRole.ASSISTANT]))
+                .order_by(Message.created_at.asc())
+            )
+            msgs = (await db.execute(stmt)).scalars().all()
+            if not msgs:
+                logger.info(
+                    "Skipping memory write for conversation=%s "
+                    "(no user/assistant messages)",
+                    conversation_id,
+                )
+                span.set_attribute("skipped.reason", "no_messages")
+                return
+
+            agno_messages = [
+                {"role": m.role.value, "content": m.content} for m in msgs
+            ]
+            success = await add_memory(end_user_id, agent_id, agno_messages)
+            new_attempts = attempts if success else attempts + 1
+
+            span.set_attribute("success", success)
+            span.set_attribute("attempts.before", attempts)
+            span.set_attribute("attempts.after", new_attempts)
+            if not success and new_attempts >= settings.MEMORY_MAX_EXTRACTION_ATTEMPTS:
+                span.set_attribute("extraction.permanent_failure", True)
+
+            # Atomic single-transaction update — prevents v3's partial-failure
+            # orphan (memory written but status ACTIVE forever).
+            update_values: dict = {}
+            if success:
+                update_values["memory_written_at"] = func.now()
+                if close_conversation:
+                    update_values["status"] = ConversationStatus.COMPLETED
+                    update_values["ended_at"] = func.now()
+            else:
+                update_values["memory_extraction_attempts"] = (
+                    Conversation.memory_extraction_attempts + 1
+                )
+            await db.execute(
+                update(Conversation)
+                .where(Conversation.id == conversation_id)
+                .values(**update_values)
+            )
+            await db.commit()
 
 
 # --------------------------------------------------------------------------
