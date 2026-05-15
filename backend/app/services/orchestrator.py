@@ -194,12 +194,14 @@ class ConversationOrchestrator:
         with tracer.start_as_current_span("orchestrator.process_message") as _root_span:
             _root_span.set_attribute("conversation.id", str(conversation_id))
             _root_span.set_attribute("user_message.length", len(user_message))
-            return await self._process_message_impl(conversation_id, user_message)
+            return await self._process_message_impl(conversation_id, user_message, mode=mode)
 
     async def _process_message_impl(
         self,
         conversation_id: uuid.UUID,
         user_message: str,
+        *,
+        mode: Literal["voice", "text"] = "text",
     ) -> OrchestratorResponse:
         """Process an incoming user message and return the agent's response.
 
